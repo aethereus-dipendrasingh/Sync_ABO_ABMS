@@ -23,7 +23,7 @@ logging.basicConfig(
 logger = logging.getLogger("salesforce_xml_api")
 
 # Load environment variables
-load_dotenv(dotenv_path="creds.env")
+# load_dotenv(dotenv_path="creds.env")
 
 app = FastAPI(
     title="Salesforce XML API", 
