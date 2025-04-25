@@ -3,14 +3,13 @@ from simple_salesforce import Salesforce
 from xml.dom.minidom import parseString
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
-import uvicorn
 import html
 import os
 import json
 import logging
 from functools import lru_cache
 import time
-from flask import Flask
+from flask import Flask, request, jsonify
 
 # Set up logging
 logging.basicConfig(
@@ -268,9 +267,10 @@ def get_salesforce_xml(xml_file_name: str) -> str:
         raise HTTPException(status_code=500, detail=f"Error processing XML: {str(e)}")
 
 
-@app.get("/")
-def get_xml(xml_file_name: str):
+@app.route('/download', methods=['GET'])
+def get_xml():
     """API endpoint to get XML by file name."""
+    xml_file_name = request.args.get('xml_file_name', 'World')
     logger.info(f"Received request for XML file: {xml_file_name}")
     try:
         xml_content = get_salesforce_xml(xml_file_name)
