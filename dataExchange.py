@@ -289,6 +289,29 @@ def get_xml():
             status_code=500, detail=f"An unexpected error occurred: {str(e)}"
         )
 
+@app.route('/debug', methods=['GET'])
+def debug_connection():
+    try:
+        # Test Salesforce connection
+        sf = get_salesforce_connection()
+        
+        # Check if we can query a simple object
+        result = sf.query("SELECT Id FROM Account LIMIT 1")
+        
+        # Return success with some basic info
+        return jsonify({
+            "status": "success",
+            "connection": "established",
+            "query_result": f"Found {result.get('totalSize', 0)} records"
+        })
+    except Exception as e:
+        logger.error(f"Debug error: {str(e)}", exc_info=True)
+        return jsonify({
+            "status": "error",
+            "message": str(e),
+            "error_type": type(e).__name__
+        }), 500
+
 @app.route("/")
 def hello():
     return "Hello, World from ABO!"
