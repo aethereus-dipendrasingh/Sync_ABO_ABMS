@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+simple-salesforce
+python-dotenv
+beautifulsoup4
