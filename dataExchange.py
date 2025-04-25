@@ -10,6 +10,7 @@ import json
 import logging
 from functools import lru_cache
 import time
+from flask import Flask
 
 # Set up logging
 logging.basicConfig(
@@ -25,10 +26,7 @@ logger = logging.getLogger("salesforce_xml_api")
 # Load environment variables
 # load_dotenv(dotenv_path="creds.env")
 
-app = FastAPI(
-    title="Salesforce XML API", 
-    description="API to generate XML files from Salesforce"
-)
+app = Flask(__name__)
 
 # Cache for Salesforce connection to avoid repeated authentication
 @lru_cache(maxsize=1)
@@ -291,6 +289,10 @@ def get_xml(xml_file_name: str):
             status_code=500, detail=f"An unexpected error occurred: {str(e)}"
         )
 
+@app.route("/")
+def hello():
+    return "Hello, World from ABO!"
+
 if __name__ == "__main__":
     logger.info("Starting Salesforce XML API server")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    app.run(debug=True)

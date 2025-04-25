@@ -3,3 +3,4 @@ uvicorn
 simple-salesforce
 python-dotenv
 beautifulsoup4
+flask
