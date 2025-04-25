@@ -9,6 +9,7 @@ import logging
 from functools import lru_cache
 import time
 from flask import Flask, Response, request, jsonify
+from flask_cors import CORS
 
 # Set up logging
 logging.basicConfig(
@@ -25,6 +26,7 @@ logger = logging.getLogger("salesforce_xml_api")
 # load_dotenv(dotenv_path="creds.env")
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
 # Cache for Salesforce connection to avoid repeated authentication
 @lru_cache(maxsize=1)
@@ -274,11 +276,14 @@ def get_xml():
     try:
         xml_content = get_salesforce_xml(xml_file_name)
         logger.info(f"Successfully generated XML for {xml_file_name}")
-        return Response(
+        response = Response(
             xml_content,  # First positional argument in Flask's Response
             mimetype="application/xml",  # Flask uses 'mimetype' instead of 'media_type'
             headers={"Content-Disposition": f"attachment; filename={xml_file_name}.xml"}
         )
+        # Add CORS headers manually if needed for specific control
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response
 
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}", exc_info=True)
