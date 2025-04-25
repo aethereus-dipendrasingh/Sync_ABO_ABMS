@@ -1,4 +1,3 @@
-from fastapi import FastAPI, HTTPException, Response
 from simple_salesforce import Salesforce
 from xml.dom.minidom import parseString
 from dotenv import load_dotenv
@@ -9,7 +8,7 @@ import json
 import logging
 from functools import lru_cache
 import time
-from flask import Flask, request, Response, jsonify
+from flask import Flask, Response, request, jsonify
 
 # Set up logging
 logging.basicConfig(
@@ -264,32 +263,30 @@ def get_salesforce_xml(xml_file_name: str) -> str:
 
     except Exception as e:
         logger.error(f"Error processing XML for {xml_file_name}: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error processing XML: {str(e)}")
+        raise Exception(status_code=500, detail=f"Error processing XML: {str(e)}")
 
 
 @app.route('/download', methods=['GET'])
 def get_xml():
     """API endpoint to get XML by file name."""
-    xml_file_name = request.args.get('xml_file_name', 'World')
+    xml_file_name = request.args.get('xml_file_name', 'ABOph_Oph_GenInit')
     logger.info(f"Received request for XML file: {xml_file_name}")
     try:
         xml_content = get_salesforce_xml(xml_file_name)
         logger.info(f"Successfully generated XML for {xml_file_name}")
         return Response(
-            content=xml_content,
-            media_type="application/xml",
-            headers={"Content-Disposition": f"attachment; filename={xml_file_name}.xml"},
+            xml_content,  # First positional argument in Flask's Response
+            mimetype="application/xml",  # Flask uses 'mimetype' instead of 'media_type'
+            headers={"Content-Disposition": f"attachment; filename={xml_file_name}.xml"}
         )
-    except HTTPException as e:
-        logger.error(f"HTTP exception occurred: {e.detail}")
-        raise e
+
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}", exc_info=True)
-        raise HTTPException(
+        raise Exception(
             status_code=500, detail=f"An unexpected error occurred: {str(e)}"
         )
 
-@app.route('/debug', methods=['GET'])
+@app.route('/connection', methods=['GET'])
 def debug_connection():
     try:
         # Test Salesforce connection
