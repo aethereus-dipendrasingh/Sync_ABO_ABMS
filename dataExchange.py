@@ -24,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger("salesforce_xml_api")
 
 # Load environment variables
-load_dotenv(dotenv_path="creds.env")
+# load_dotenv(dotenv_path="creds.env")
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -334,8 +334,8 @@ def get_xml():
         xml_content = get_salesforce_xml(xml_file_name)
         logger.info(f"Successfully generated XML for {xml_file_name}")
         response = Response(
-            xml_content,  # First positional argument in Flask's Response
-            mimetype="application/xml",  # Flask uses 'mimetype' instead of 'media_type'
+            xml_content,
+            mimetype="application/xml",
             headers={"Content-Disposition": f"attachment; filename={xml_file_name}.xml"}
         )
         # Add CORS headers manually if needed for specific control
