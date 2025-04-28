@@ -24,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger("salesforce_xml_api")
 
 # Load environment variables
-# load_dotenv(dotenv_path="creds.env")
+load_dotenv(dotenv_path="creds.env")
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -47,6 +47,39 @@ def get_salesforce_connection():
         logger.error(f"Failed to connect to Salesforce: {str(e)}")
         raise Exception(status_code=500, detail=f"Error while establishing sf connection: {str(e)}")
 
+def get_state_statecode_mapping(sf):
+    """Query State_Code_Mapping__mdt and return a dict with Country as key and State as value."""
+    logger.info("Querying State_Code_Mapping__mdt records")
+    
+    try:
+        # Query all records from the custom metadata type
+        query = """
+            SELECT Label, State__c 
+            FROM State_Code_Mapping__mdt
+            WHERE Country__c != NULL 
+            AND State__c != NULL
+        """
+        
+        result = sf.query(query)
+        
+        # Create a dictionary with Country as key and State as value
+        state_to_statecode_map = {}
+        
+        if result and 'records' in result:
+            for record in result['records']:
+                stateCode = record.get('Label')
+                state = record.get('State__c')
+                
+                if stateCode and state:
+                    state_to_statecode_map[state] = stateCode
+        
+        logger.info(f"Retrieved {len(state_to_statecode_map)} country-state mappings")
+        return state_to_statecode_map
+        
+    except Exception as e:
+        logger.error(f"Error querying State_Code_Mapping__mdt: {str(e)}", exc_info=True)
+        return {}
+
 def parse_rich_text_to_compact_xml(html_data: str) -> str:
     """Parse rich text HTML to plain text with compact XML formatting."""
     if not html_data:
@@ -58,7 +91,7 @@ def parse_rich_text_to_compact_xml(html_data: str) -> str:
     ]
     return "\n".join(lines).strip()
 
-def generate_xml_members(sf_query_result, metadata_result, main_xml_template, license_xml_template, fieldMapping):
+def generate_xml_members(sf_query_result, metadata_result, main_xml_template, license_xml_template, fieldMapping, statecode_map):
     """Generate XML members from Salesforce query results."""
     logger.info("Generating XML members")
     start_time = time.time()
@@ -118,11 +151,22 @@ def generate_xml_members(sf_query_result, metadata_result, main_xml_template, li
                     
                     # Using fieldMapping for license fields
                     for placeholder, field_name in fieldMapping.items():
+                        logger.info(placeholder)
                         if placeholder.startswith("{{Medical_License__c."):
                             field = placeholder.split(".")[-1].rstrip("}}")
-                            value = license.get(field)
-                            # Convert value to string if it's not None
-                            value_str = str(value) if value is not None else ''
+                            logger.info(field)
+                            state = license.get(field_name)
+
+                            # Convert state to string if it's not None
+                            value_str = str(state) if state is not None else ''
+
+                            if "State" in field:
+                                # Try to get the state code from the mapping
+                                logger.info(f"state : {state} , statecode_map : {statecode_map}")
+                                if state in statecode_map:
+                                    value_str = str(statecode_map[str(state)])
+                                    logger.info(f"Replaced state '{state}' with state code '{value_str}'")
+                            
                             license_block = license_block.replace(placeholder, value_str)
                     
                     license_blocks.append(license_block)
@@ -169,42 +213,16 @@ def generate_xml_members(sf_query_result, metadata_result, main_xml_template, li
                 value_str = str(value) if value is not None else ''
                 contact_xml = contact_xml.replace(placeholder, value_str)
             elif placeholder == "{{Salesforce.DataMappingPending}}":
-                contact_xml = contact_xml.replace(placeholder, "Pending")
+                value = contact.get(field_name)
+                # Convert value to string if it's not None
+                value_str = str(value) if value is not None else ''
+                contact_xml = contact_xml.replace(placeholder, value_str)
         
         xml_members.append(contact_xml)
     
     end_time = time.time()
     logger.info(f"XML member generation completed in {end_time - start_time:.2f} seconds")
     return xml_members
-
-def get_unique_filename(sf, base_title, library_id):
-    """Check for existing files with the same name and return a unique filename"""
-    query = f"""
-    SELECT ContentDocument.Title 
-    FROM ContentDocumentLink 
-    WHERE LinkedEntityId = '{library_id}'
-    """
-    
-    try:
-        results = sf.query(query)
-        existing_titles = [record['ContentDocument']['Title'] for record in results.get('records', [])]
-        
-        # If the base title doesn't exist, return it
-        if base_title not in existing_titles:
-            return base_title
-        
-        # Otherwise, try with incrementing numbers
-        counter = 1
-        while True:
-            numbered_title = f"{base_title.rsplit('.', 1)[0]}{counter}"
-            if numbered_title not in existing_titles:
-                return numbered_title
-            counter += 1
-            
-    except Exception as e:
-        # If there's an error querying, fall back to the original filename
-        logger.warning(f"Error checking for existing files: {e}")
-        return base_title
 
 def upload_file_to_library(sf, xml_content, title, library_id):    
     # Read file content and encode
@@ -240,7 +258,7 @@ def get_salesforce_xml(xml_file_name: str) -> str:
     try:
         # Get cached Salesforce connection
         sf = get_salesforce_connection()
-
+        statecode_map = get_state_statecode_mapping(sf)
         # Query for XML migration settings
         logger.info(f"Querying ABOP_Migration__c records for {xml_file_name}")
         query = f"""
@@ -300,7 +318,7 @@ def get_salesforce_xml(xml_file_name: str) -> str:
         main_xml = main_xml.replace("{{CertificationsBlock}}", certification_xml)
 
         # Generate XML content
-        xml_members = generate_xml_members(contact_records, abo_metadata_records, main_xml, license_xml,fieldMapping)
+        xml_members = generate_xml_members(contact_records, abo_metadata_records, main_xml, license_xml,fieldMapping,statecode_map)
         xml_member = "\n".join(xml_members)
         xml_member = main_xml_header + "\n" + xml_member + "\n" + main_xml_footer
 
@@ -311,10 +329,19 @@ def get_salesforce_xml(xml_file_name: str) -> str:
         pretty_xml = '<?xml version="1.0" encoding="utf-8"?>\n' + '\n'.join(pretty_body.split('\n')[1:])
         
         file_path = pretty_xml
-        library_id = "058bb000000O9VBAA0"
-        title = get_unique_filename(sf, xml_file_name, library_id)
-        logger.info(f"Uploading XML file to Salesforce library: {file_path}")
-        result = upload_file_to_library(sf, file_path, title, library_id)
+        title = f"{xml_file_name} - {time.strftime('%Y-%m-%d %H.%M.%S')}"
+        result = sf.query("SELECT Id FROM ContentWorkspace WHERE Name = 'ABOP XML files'")
+        records = result.get("records", [])
+
+        if records:
+            library_id = records[0]["Id"]
+            logger.info(f"Uploading XML file to Salesforce library: {file_path}")
+            result = upload_file_to_library(sf, file_path, title, library_id)
+        else:
+            library_id = None
+            logger.error("Library ID not found")
+            raise Exception(status_code=500, detail="Library ID not found")
+              
         print(f"Upload result: {result}")
 
         end_time = time.time()
