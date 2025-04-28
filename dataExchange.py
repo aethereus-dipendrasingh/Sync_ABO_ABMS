@@ -329,7 +329,7 @@ def get_salesforce_xml(xml_file_name: str) -> str:
         pretty_xml = '<?xml version="1.0" encoding="utf-8"?>\n' + '\n'.join(pretty_body.split('\n')[1:])
         
         file_path = pretty_xml
-        title = f"{xml_file_name} - {time.strftime('%Y-%m-%d %H.%M.%S')}"
+        title = f"{xml_file_name}_{time.strftime('%d-%m-%Y %H.%M.%S')}"
         result = sf.query("SELECT Id FROM ContentWorkspace WHERE Name = 'ABOP XML files'")
         records = result.get("records", [])
 
