@@ -158,7 +158,7 @@ def generate_xml_members(sf_query_result, metadata_result, main_xml_template, li
                             state = license.get(field_name)
 
                             # Convert state to string if it's not None
-                            value_str = str(state) if state is not None else ''
+                            value_str = str(state) if state is not None else ' '
 
                             if "State" in field:
                                 # Try to get the state code from the mapping
@@ -186,13 +186,13 @@ def generate_xml_members(sf_query_result, metadata_result, main_xml_template, li
         if mailing_address:
             # Handle both string and OrderedDict types
             if isinstance(mailing_address, dict):
-                street = mailing_address.get('street', '')
+                street = mailing_address.get('street', ' ')
                 address_str = str(street)
             else:
                 address_str = str(mailing_address)
             contact_xml = contact_xml.replace("{{Contact.MailingAddress}}", address_str)
         else:
-            contact_xml = contact_xml.replace("{{Contact.MailingAddress}}", "")
+            contact_xml = contact_xml.replace("{{Contact.MailingAddress}}", " ")
         
         # Replace all other placeholders using the field mapping
         for placeholder, field_name in fieldMapping.items():
@@ -200,22 +200,19 @@ def generate_xml_members(sf_query_result, metadata_result, main_xml_template, li
                 value = contact.get(field_name)
                 # Convert value to string if it's not None
                 if value is not None:
-                    if isinstance(value, (dict, list)):
-                        value_str = str(value)
-                    else:
-                        value_str = str(value)
+                    value_str = str(value)
                 else:
-                    value_str = ''
+                    value_str = ' '
                 contact_xml = contact_xml.replace(placeholder, value_str)
             elif placeholder.startswith("{{ABO_Setting__mdt."):
                 value = metadata_record.get(field_name)
                 # Convert value to string if it's not None
-                value_str = str(value) if value is not None else ''
+                value_str = str(value) if value is not None else ' '
                 contact_xml = contact_xml.replace(placeholder, value_str)
             elif placeholder == "{{Salesforce.DataMappingPending}}":
                 value = contact.get(field_name)
                 # Convert value to string if it's not None
-                value_str = str(value) if value is not None else ''
+                value_str = str(value) if value is not None else ' '
                 contact_xml = contact_xml.replace(placeholder, value_str)
         
         xml_members.append(contact_xml)
