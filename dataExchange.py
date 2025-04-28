@@ -23,7 +23,7 @@ logging.basicConfig(
 logger = logging.getLogger("salesforce_xml_api")
 
 # Load environment variables
-# load_dotenv(dotenv_path="creds.env")
+load_dotenv(dotenv_path="creds.env")
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -44,7 +44,7 @@ def get_salesforce_connection():
         return sf
     except Exception as e:
         logger.error(f"Failed to connect to Salesforce: {str(e)}")
-        raise
+        raise Exception(status_code=500, detail=f"Error while establishing sf connection: {str(e)}")
 
 def parse_rich_text_to_compact_xml(html_data: str) -> str:
     """Parse rich text HTML to plain text with compact XML formatting."""
@@ -151,11 +151,6 @@ def generate_xml_members(sf_query_result, metadata_result, main_xml_template, li
         
         # Replace all other placeholders using the field mapping
         for placeholder, field_name in fieldMapping.items():
-            # Skip blocks and already handled special cases
-            if placeholder in ["{{LicensesBlock}}", "{{AddressesBlock}}", "{{EducationsBlock}}", 
-                              "{{CertificationsBlock}}", "{{IssuancesBlock}}", "{{Contact.MailingAddress}}"]:
-                continue
-                
             if placeholder.startswith("{{Contact."):
                 value = contact.get(field_name)
                 # Convert value to string if it's not None
@@ -207,7 +202,7 @@ def get_salesforce_xml(xml_file_name: str) -> str:
 
         if not abopMigration_records["records"]:
             logger.warning(f"No active ABOP_Migration__c records found for {xml_file_name}")
-            return "<?xml version='1.0' encoding='utf-8'?><Members/>"
+            return "<?xml version='1.0' encoding='utf-8'?><Members></Members>"
 
         logger.info(f"Found {len(abopMigration_records['records'])} ABOP_Migration__c record(s)")
         record = abopMigration_records["records"][0]
