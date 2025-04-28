@@ -6,6 +6,7 @@ import html
 import os
 import json
 import logging
+import base64
 from functools import lru_cache
 import time
 from flask import Flask, Response, request, jsonify
@@ -176,6 +177,32 @@ def generate_xml_members(sf_query_result, metadata_result, main_xml_template, li
     logger.info(f"XML member generation completed in {end_time - start_time:.2f} seconds")
     return xml_members
 
+def upload_file_to_library(sf, xml_content, title, library_id):    
+    # Read file content and encode
+    if isinstance(xml_content, str):
+        xml_bytes = xml_content.encode('utf-8')
+    else:
+        xml_bytes = xml_content
+    
+    # Encode the XML content to base64
+    base64_content = base64.b64encode(xml_bytes).decode('utf-8')
+    
+    # Define a filename for the XML
+    filename = f"{title}.xml"
+    
+    # Prepare the ContentVersion record
+    content_version_data = {
+        'Title': title,
+        'PathOnClient': filename,
+        'VersionData': base64_content,
+        'FirstPublishLocationId': library_id  # Content Library ID
+    }
+    
+    # Upload the file as a ContentVersion
+    result = sf.ContentVersion.create(content_version_data)
+    
+    return result
+
 def get_salesforce_xml(xml_file_name: str) -> str:
     """Get XML data from Salesforce based on the given file name."""
     logger.info(f"Processing XML request for file: {xml_file_name}")
@@ -254,6 +281,13 @@ def get_salesforce_xml(xml_file_name: str) -> str:
         pretty_body = '\n'.join([line for line in parsed_xml.toprettyxml(indent="   ").split('\n') if line.strip()])
         pretty_xml = '<?xml version="1.0" encoding="utf-8"?>\n' + '\n'.join(pretty_body.split('\n')[1:])
         
+        file_path = pretty_xml
+        title = xml_file_name
+        library_id = "058bb000000O9VBAA0"
+        logger.info(f"Uploading XML file to Salesforce library: {file_path}")
+        result = upload_file_to_library(sf, file_path, title, library_id)
+        print(f"Upload result: {result}")
+
         end_time = time.time()
         logger.info(f"XML generation completed in {end_time - start_time:.2f} seconds")
         return pretty_xml
@@ -261,7 +295,6 @@ def get_salesforce_xml(xml_file_name: str) -> str:
     except Exception as e:
         logger.error(f"Error processing XML for {xml_file_name}: {str(e)}", exc_info=True)
         raise Exception(status_code=500, detail=f"Error processing XML: {str(e)}")
-
 
 @app.route('/download', methods=['GET'])
 def get_xml():
