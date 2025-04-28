@@ -24,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger("salesforce_xml_api")
 
 # Load environment variables
-# load_dotenv(dotenv_path="creds.env")
+load_dotenv(dotenv_path="creds.env")
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -177,6 +177,35 @@ def generate_xml_members(sf_query_result, metadata_result, main_xml_template, li
     logger.info(f"XML member generation completed in {end_time - start_time:.2f} seconds")
     return xml_members
 
+def get_unique_filename(sf, base_title, library_id):
+    """Check for existing files with the same name and return a unique filename"""
+    query = f"""
+    SELECT ContentDocument.Title 
+    FROM ContentDocumentLink 
+    WHERE LinkedEntityId = '{library_id}'
+    """
+    
+    try:
+        results = sf.query(query)
+        existing_titles = [record['ContentDocument']['Title'] for record in results.get('records', [])]
+        
+        # If the base title doesn't exist, return it
+        if base_title not in existing_titles:
+            return base_title
+        
+        # Otherwise, try with incrementing numbers
+        counter = 1
+        while True:
+            numbered_title = f"{base_title.rsplit('.', 1)[0]}{counter}"
+            if numbered_title not in existing_titles:
+                return numbered_title
+            counter += 1
+            
+    except Exception as e:
+        # If there's an error querying, fall back to the original filename
+        logger.warning(f"Error checking for existing files: {e}")
+        return base_title
+
 def upload_file_to_library(sf, xml_content, title, library_id):    
     # Read file content and encode
     if isinstance(xml_content, str):
@@ -282,8 +311,8 @@ def get_salesforce_xml(xml_file_name: str) -> str:
         pretty_xml = '<?xml version="1.0" encoding="utf-8"?>\n' + '\n'.join(pretty_body.split('\n')[1:])
         
         file_path = pretty_xml
-        title = xml_file_name
         library_id = "058bb000000O9VBAA0"
+        title = get_unique_filename(sf, xml_file_name, library_id)
         logger.info(f"Uploading XML file to Salesforce library: {file_path}")
         result = upload_file_to_library(sf, file_path, title, library_id)
         print(f"Upload result: {result}")
