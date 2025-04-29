@@ -24,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger("salesforce_xml_api")
 
 # Load environment variables
-# load_dotenv(dotenv_path="creds.env")
+load_dotenv(dotenv_path="creds.env")
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -252,7 +252,7 @@ def upload_file_to_library(sf, xml_content, title, library_id):
     # Insert the integration log record
     sf.Integration_Log__c.create(integration_log)
     
-    return result
+    return sf.ContentVersion.get(result.get('id')).get('ContentDocumentId', 'None')
 
 def get_salesforce_xml(xml_file_name: str) -> str:
     """Get XML data from Salesforce based on the given file name."""
@@ -351,7 +351,7 @@ def get_salesforce_xml(xml_file_name: str) -> str:
 
         end_time = time.time()
         logger.info(f"XML generation completed in {end_time - start_time:.2f} seconds")
-        return pretty_xml
+        return result
 
     except Exception as e:
         logger.error(f"Error processing XML for {xml_file_name}: {str(e)}", exc_info=True)
@@ -363,16 +363,9 @@ def get_xml():
     xml_file_name = request.args.get('xml_file_name', 'ABOph_Oph_GenInit')
     logger.info(f"Received request for XML file: {xml_file_name}")
     try:
-        xml_content = get_salesforce_xml(xml_file_name)
+        contentDocumentId = get_salesforce_xml(xml_file_name)
         logger.info(f"Successfully generated XML for {xml_file_name}")
-        response = Response(
-            xml_content,
-            mimetype="application/xml",
-            headers={"Content-Disposition": f"attachment; filename={xml_file_name}.xml"}
-        )
-        # Add CORS headers manually if needed for specific control
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        return response
+        return contentDocumentId
 
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}", exc_info=True)
