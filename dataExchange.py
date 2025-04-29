@@ -182,7 +182,9 @@ def generate_xml_members(sf_query_result, metadata_result, main_xml_template, li
             if placeholder.startswith("{{Contact."):
                 value = contact.get(field_name)
                 # Convert value to string if it's not None
-                if value is not None:
+                if isinstance(value, dict) and 'city' in value:
+                    value_str = ', '.join(filter(None, [value.get(k) for k in ['street', 'city', 'state', 'postalCode', 'country']]))
+                elif value is not None:
                     value_str = str(value)
                 else:
                     value_str = ' '
@@ -204,7 +206,7 @@ def generate_xml_members(sf_query_result, metadata_result, main_xml_template, li
     logger.info(f"XML member generation completed in {end_time - start_time:.2f} seconds")
     return xml_members
 
-def upload_file_to_library(sf, xml_content, title, library_id):    
+def upload_file_to_library(sf, xml_content, title, library_id):
     # Read file content and encode
     if isinstance(xml_content, str):
         xml_bytes = xml_content.encode('utf-8')
@@ -233,18 +235,18 @@ def upload_file_to_library(sf, xml_content, title, library_id):
         integration_log = {
             'Status_Code__c': '200' if success else '500',
             'Message__c': f"Inserted ContentVersion ID: {result.get('id')}",
-            'Request_Payload__c': json.dumps(content_version_data),
-            'Response_Payload__c	': json.dumps(result),
+            'Request_Payload__c': sf.ContentVersion.get(result.get('id')).get('VersionDataUrl', 'None'),
+            'Response_Payload__c': str(json.dumps(result)),
             'Log_Type__c': 'Python Integration'
         }
 
     except Exception as e:
         integration_log = {
-            'Status__c': '200' if success else '500',
+            'Status_Code__c': '200' if success else '500',
             'Message__c': 'Error inserting ContentVersion',
-            'Payload__c': json.dumps(content_version_data),
-            'Response__c': json.dumps(e.content),
-            'System_Name__c': 'Python Integration'
+            'Request_Payload__c': 'None',
+            'Response_Payload__c': str(json.dumps(e.content)),
+            'Log_Type__c': 'Python Integration'
         }
 
     # Insert the integration log record
