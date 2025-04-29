@@ -232,17 +232,18 @@ def upload_file_to_library(sf, xml_content, title, library_id):
         result = sf.ContentVersion.create(content_version_data)
         success = result.get('success', False)
 
+        download_url = sf.ContentVersion.get(result.get('id')).get('VersionDataUrl', 'None')
         integration_log = {
             'Status_Code__c': '200' if success else '500',
             'Message__c': f"Inserted ContentVersion ID: {result.get('id')}",
-            'Request_Payload__c': sf.ContentVersion.get(result.get('id')).get('VersionDataUrl', 'None'),
+            'Request_Payload__c': download_url,
             'Response_Payload__c': str(json.dumps(result)),
             'Log_Type__c': 'Python Integration'
         }
 
     except Exception as e:
         integration_log = {
-            'Status_Code__c': '200' if success else '500',
+            'Status_Code__c': '500',
             'Message__c': 'Error inserting ContentVersion',
             'Request_Payload__c': 'None',
             'Response_Payload__c': str(json.dumps(e.content)),
@@ -252,7 +253,7 @@ def upload_file_to_library(sf, xml_content, title, library_id):
     # Insert the integration log record
     sf.Integration_Log__c.create(integration_log)
     
-    return sf.ContentVersion.get(result.get('id')).get('ContentDocumentId', 'None')
+    return download_url
 
 def get_salesforce_xml(xml_file_name: str) -> str:
     """Get XML data from Salesforce based on the given file name."""
