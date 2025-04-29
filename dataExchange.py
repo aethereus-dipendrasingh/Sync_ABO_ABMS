@@ -8,7 +8,7 @@ import json
 import logging
 import base64
 from functools import lru_cache
-import time
+import datetime,time
 from flask import Flask, Response, request, jsonify
 from flask_cors import CORS
 
@@ -24,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger("salesforce_xml_api")
 
 # Load environment variables
-# load_dotenv(dotenv_path="creds.env")
+load_dotenv(dotenv_path="creds.env")
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -151,10 +151,8 @@ def generate_xml_members(sf_query_result, metadata_result, main_xml_template, li
                     
                     # Using fieldMapping for license fields
                     for placeholder, field_name in fieldMapping.items():
-                        logger.info(placeholder)
                         if placeholder.startswith("{{Medical_License__c."):
                             field = placeholder.split(".")[-1].rstrip("}}")
-                            logger.info(field)
                             state = license.get(field_name)
 
                             # Convert state to string if it's not None
@@ -162,7 +160,6 @@ def generate_xml_members(sf_query_result, metadata_result, main_xml_template, li
 
                             if "State" in field:
                                 # Try to get the state code from the mapping
-                                logger.info(f"state : {state} , statecode_map : {statecode_map}")
                                 if state in statecode_map:
                                     value_str = str(statecode_map[str(state)])
                                     logger.info(f"Replaced state '{state}' with state code '{value_str}'")
@@ -180,20 +177,6 @@ def generate_xml_members(sf_query_result, metadata_result, main_xml_template, li
         # Replace the licenses block placeholder
         contact_xml = contact_xml.replace("{{LicensesBlock}}", licenses_block)
         
-        # Handle special cases first
-        # Handle MailingAddress specially since it's a nested structure
-        mailing_address = contact.get('MailingAddress')
-        if mailing_address:
-            # Handle both string and OrderedDict types
-            if isinstance(mailing_address, dict):
-                street = mailing_address.get('street', ' ')
-                address_str = str(street)
-            else:
-                address_str = str(mailing_address)
-            contact_xml = contact_xml.replace("{{Contact.MailingAddress}}", address_str)
-        else:
-            contact_xml = contact_xml.replace("{{Contact.MailingAddress}}", " ")
-        
         # Replace all other placeholders using the field mapping
         for placeholder, field_name in fieldMapping.items():
             if placeholder.startswith("{{Contact."):
@@ -209,7 +192,7 @@ def generate_xml_members(sf_query_result, metadata_result, main_xml_template, li
                 # Convert value to string if it's not None
                 value_str = str(value) if value is not None else ' '
                 contact_xml = contact_xml.replace(placeholder, value_str)
-            elif placeholder == "{{Salesforce.DataMappingPending}}":
+            elif placeholder == "{{Salesforce.DataMappingPending}}": # Need to delte after mapping done
                 value = contact.get(field_name)
                 # Convert value to string if it's not None
                 value_str = str(value) if value is not None else ' '
@@ -243,7 +226,29 @@ def upload_file_to_library(sf, xml_content, title, library_id):
     }
     
     # Upload the file as a ContentVersion
-    result = sf.ContentVersion.create(content_version_data)
+    try:
+        result = sf.ContentVersion.create(content_version_data)
+        success = result.get('success', False)
+
+        integration_log = {
+            'Status_Code__c': '200' if success else '500',
+            'Message__c': f"Inserted ContentVersion ID: {result.get('id')}",
+            'Request_Payload__c': json.dumps(content_version_data),
+            'Response_Payload__c	': json.dumps(result),
+            'Log_Type__c': 'Python Integration'
+        }
+
+    except Exception as e:
+        integration_log = {
+            'Status__c': '200' if success else '500',
+            'Message__c': 'Error inserting ContentVersion',
+            'Payload__c': json.dumps(content_version_data),
+            'Response__c': json.dumps(e.content),
+            'System_Name__c': 'Python Integration'
+        }
+
+    # Insert the integration log record
+    sf.Integration_Log__c.create(integration_log)
     
     return result
 
@@ -324,6 +329,7 @@ def get_salesforce_xml(xml_file_name: str) -> str:
         parsed_xml = parseString(xml_member)
         pretty_body = '\n'.join([line for line in parsed_xml.toprettyxml(indent="   ").split('\n') if line.strip()])
         pretty_xml = '<?xml version="1.0" encoding="utf-8"?>\n' + '\n'.join(pretty_body.split('\n')[1:])
+        # pretty_xml = pretty_xml.replace('> <', '><')
         
         file_path = pretty_xml
         title = f"{xml_file_name}_{time.strftime('%d-%m-%Y %H.%M.%S')}"
