@@ -9,7 +9,7 @@ import logging
 import base64
 from functools import lru_cache
 import datetime,time
-from flask import Flask, Response, request, jsonify
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 # Set up logging
@@ -184,6 +184,8 @@ def generate_xml_members(sf_query_result, metadata_result, main_xml_template, li
                 # Convert value to string if it's not None
                 if isinstance(value, dict) and 'city' in value:
                     value_str = ', '.join(filter(None, [value.get(k) for k in ['street', 'city', 'state', 'postalCode', 'country']]))
+                elif "LastModifiedDate" in placeholder:
+                    value_str = str(datetime.datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%f%z").strftime("%Y-%m-%d"))
                 elif value is not None:
                     value_str = str(value)
                 else:
@@ -194,11 +196,8 @@ def generate_xml_members(sf_query_result, metadata_result, main_xml_template, li
                 # Convert value to string if it's not None
                 value_str = str(value) if value is not None else ' '
                 contact_xml = contact_xml.replace(placeholder, value_str)
-            elif placeholder == "{{Salesforce.DataMappingPending}}": # Need to delte after mapping done
-                value = contact.get(field_name)
-                # Convert value to string if it's not None
-                value_str = str(value) if value is not None else ' '
-                contact_xml = contact_xml.replace(placeholder, value_str)
+            else:
+                contact_xml = contact_xml.replace(placeholder, ' ')
         
         xml_members.append(contact_xml)
     
