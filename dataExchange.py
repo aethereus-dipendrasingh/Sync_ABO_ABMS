@@ -34,6 +34,7 @@ def configure_logging():
 
 # Initialize logger
 logger = configure_logging()
+# load_dotenv(dotenv_path="creds.env")
 
 # Initialize Flask application
 app = Flask(__name__)
