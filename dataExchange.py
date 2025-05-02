@@ -207,7 +207,7 @@ def generate_xml_members(contact_records, metadata_records, main_template, licen
                             state_value = license_record.get(field_name)
 
                             # Convert state to string if it's not None
-                            value_str = str(state_value) if state_value is not None else ' '
+                            value_str = str(state_value) if state_value is not None else ''
 
                             if "State" in field:
                                 # Try to get the state code from the mapping
@@ -245,19 +245,19 @@ def generate_xml_members(contact_records, metadata_records, main_template, licen
                             value, "%Y-%m-%dT%H:%M:%S.%f%z").strftime("%Y-%m-%d"))
                     except (ValueError, TypeError):
                         logger.warning(f"Invalid date format: {value}")
-                        value_str = ' '
+                        value_str = ''
                 elif value is not None:
                     value_str = str(value)
                 else:
-                    value_str = ' '
+                    value_str = ''
                 
                 contact_xml = contact_xml.replace(placeholder, value_str)
             elif placeholder.startswith("{{ABO_Setting__mdt."):
                 value = metadata_record.get(field_name)
-                value_str = str(value) if value is not None else ' '
+                value_str = str(value) if value is not None else ''
                 contact_xml = contact_xml.replace(placeholder, value_str)
             else:
-                contact_xml = contact_xml.replace(placeholder, ' ')
+                contact_xml = contact_xml.replace(placeholder, '')
         
         xml_members.append(contact_xml)
     
