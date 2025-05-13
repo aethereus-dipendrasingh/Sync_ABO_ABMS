@@ -1,8 +1,12 @@
 fastapi
 uvicorn
-simple-salesforce
+simple_salesforce
 python-dotenv
 beautifulsoup4
 flask
 gunicorn
 flask_cors
+lxml
+html5lib
+pandas
+requests
