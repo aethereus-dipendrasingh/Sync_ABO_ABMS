@@ -856,7 +856,7 @@ def main():
             "host": "smtp.gmail.com",
             "port": 587,
             "username": "aethereus12@gmail.com",
-            "password": "pygc kdhc focv divs",
+            "password": os.getenv("GMAIL_APP_PASSWORD"),
             "sender_email": "aethereus12@gmail.com"
         }
 
