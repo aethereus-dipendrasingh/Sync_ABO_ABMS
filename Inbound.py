@@ -32,6 +32,36 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.route("/")
+def health_check():
+    """Simple health check endpoint."""
+    return "Inbound API is running"
+
+@app.route('/connection', methods=['GET'])
+def test_connection():
+    """Test the Salesforce connection."""
+    try:
+        # Test Salesforce connection
+        sf = get_salesforce_connection()
+        
+        # Check if we can query a simple object
+        result = sf.query("SELECT Id FROM Account LIMIT 1")
+        
+        # Return success with some basic info
+        return {
+            "status": "success",
+            "connection": "established",
+            "query_result": f"Found {result.get('totalSize', 0)} records"
+        }
+    except Exception as e:
+        logger.error(f"Connection test error: {str(e)}", exc_info=True)
+        return {
+            "status": "error",
+            "message": str(e),
+            "error_type": type(e).__name__
+        }, 500
+
+
 @app.get("/create")
 def create_item(file_name: str, file_type: str, file_extension: str):
     return {
