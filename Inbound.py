@@ -62,14 +62,6 @@ def test_connection():
         }, 500
 
 
-@app.get("/create")
-def create_item(file_name: str, file_type: str, file_extension: str):
-    return {
-        "file_name": file_name,
-        "file_type": file_type,
-        "file_extension": file_extension
-    }
-
 # Configure logging to only output to terminal
 def configure_logging():
     """Configure logging to output to terminal only."""
@@ -848,34 +840,38 @@ def send_upsert_summary_email(user_email: str, results: Dict, smtp_config: dict)
         print(f"❌ Failed to send email: {e}")
         return False
 
-def main():
+def main(file_name,file_type,file_extension):
     """Main function to run the script."""
     try:
         sf = get_salesforce_connection()
-        query = "SELECT Id, Title, VersionDataUrl FROM ContentVersion WHERE Title = 'LIDS_2025-05-13_12:08:11' ORDER BY CreatedDate DESC LIMIT 1"
-        df, *dicts = get_salesforce_file(sf,query,False)
+        query = f"SELECT Id, Title, VersionDataUrl FROM ContentVersion WHERE Title = '{file_name}' ORDER BY CreatedDate DESC LIMIT 1"
+        df, *dicts = get_salesforce_file(sf,query,file_extension == "csv")
         # Initialize mappings
         LIDS_mapping = {}
         DANS_candidateMapping = {}
         DANS_diplomateMapping = {}
+
+        # Responses
+        contact_response = {}
+        medical_response = {}
 
         if len(dicts) == 1:
             LIDS_mapping = dicts[0]
         else:
             DANS_candidateMapping, DANS_diplomateMapping = dicts
 
-        # Print the DataFrame
-        # print("DataFrame:")
-        # print(df)
-        print("LIDS Mapping:")
-        print(LIDS_mapping)
-        print("DANS Candidate Mapping:")
-        print(DANS_candidateMapping)
-        print("DANS Diplomate Mapping:")
-        print(DANS_diplomateMapping)
+        # Print the DataFrame & Mappings
+        logger.info("DataFrame Head:"+df.head().to_string())
+        logger.info("LIDS Mapping:" + str(LIDS_mapping))
+        logger.info("DANS Candidates Mapping:" + str(DANS_candidateMapping))
+        logger.info("DANS Diplomates Mapping:" + str(DANS_diplomateMapping))
 
-        contact_response = create_contact_records(sf, df, LIDS_mapping)
-        medical_response = create_medical_license_records(sf, df, LIDS_mapping)
+        if(file_type == "LIDS"):
+            contact_response = create_contact_records(sf, df, LIDS_mapping)
+            medical_response = create_medical_license_records(sf, df, LIDS_mapping)
+        elif(file_type == "DANS"):
+            contact_response = create_contact_records(sf, df, DANS_candidateMapping)
+            #medical_response = create_medical_license_records(sf, df, DANS_diplomateMapping)
         # Print the payload
         logger.info("Responses:")
         logger.info(json.dumps(contact_response, indent=4))
@@ -920,11 +916,17 @@ def main():
             sf.Integration_Log__c.create(integration_log)
         except Exception as log_error:
             logger.error(f"Failed to create integration log: {str(log_error)}")
+        return results
         
     except SalesforceAPIError as e:
         logger.error(f"Salesforce API error: {e.message}", exc_info=True)
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}", exc_info=True)
+
+@app.get("/create")
+def create_item(file_name: str, file_type: str, file_extension: str):
+    result = main(file_name,file_type,file_extension)
+    return result
 
 def test_connection():
     """Test the Salesforce connection."""
