@@ -32,12 +32,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.route("/")
+@app.get("/")
 def health_check():
     """Simple health check endpoint."""
     return "Inbound API is running"
 
-@app.route('/connection', methods=['GET'])
+@app.get('/connection')
 def test_connection():
     """Test the Salesforce connection."""
     try:
