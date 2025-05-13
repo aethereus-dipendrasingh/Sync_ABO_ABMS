@@ -61,7 +61,6 @@ def test_connection():
             "error_type": type(e).__name__
         }, 500
 
-
 # Configure logging to only output to terminal
 def configure_logging():
     """Configure logging to output to terminal only."""
