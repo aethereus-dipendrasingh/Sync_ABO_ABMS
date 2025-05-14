@@ -130,7 +130,7 @@ def convert_rich_text_to_plain(html_content):
     ]
     return "\n".join(lines).strip()
 
-def get_salesforce_file(sf,query,is_csv):
+def get_salesforce_file(sf,query,file_type, is_csv):
     """Fetch data from Salesforce using a SOQL query."""
     logger.info(f"Executing query: {query}")
     try:
@@ -168,7 +168,7 @@ def get_salesforce_file(sf,query,is_csv):
                 print("CSV file successfully downloaded and converted to table:")
                 # print(df)
 
-                query = "SELECT Id,DANS_Candidates_Field_Mapping__c, DANS_Diplomates_Field_Mapping__c,  LIDS_All_Active_Field_Mapping__c FROM ABOP_Migration__c WHERE Is_Active__c =true AND XML_Type__c = 'LIDS'"
+                query = f"SELECT Id,DANS_Candidates_Field_Mapping__c, DANS_Diplomates_Field_Mapping__c,  LIDS_All_Active_Field_Mapping__c FROM ABOP_Migration__c WHERE Is_Active__c =true AND XML_Type__c = '{file_type}'"
                 sfFieldMapping = sf.query(query)
                 logger.info(f"Query executed successfully, found {sfFieldMapping.get('totalSize', 0)} records")
                 if sfFieldMapping['totalSize'] > 0:
@@ -844,7 +844,7 @@ def main(file_name,file_type,file_extension):
     try:
         sf = get_salesforce_connection()
         query = f"SELECT Id, Title, VersionDataUrl FROM ContentVersion WHERE Title = '{file_name}' ORDER BY CreatedDate DESC LIMIT 1"
-        df, *dicts = get_salesforce_file(sf,query,file_extension == ".csv")
+        df, *dicts = get_salesforce_file(sf, query, file_type, file_extension == ".csv")
         # Initialize mappings
         LIDS_mapping = {}
         DANS_candidateMapping = {}
@@ -868,9 +868,10 @@ def main(file_name,file_type,file_extension):
         if(file_type == "LIDS"):
             contact_response = create_contact_records(sf, df, LIDS_mapping)
             medical_response = create_medical_license_records(sf, df, LIDS_mapping)
-        elif(file_type == "DANS"):
+        elif(file_type == "DANS_Candidate"):
             contact_response = create_contact_records(sf, df, DANS_candidateMapping)
-            #medical_response = create_medical_license_records(sf, df, DANS_diplomateMapping)
+        elif(file_type == "DANS_Diplomate"):
+            contact_response = create_contact_records(sf, df, DANS_diplomateMapping)
         # Print the payload
         logger.info("Responses:")
         logger.info(json.dumps(contact_response, indent=4))
@@ -899,7 +900,7 @@ def main(file_name,file_type,file_extension):
                 'Status_Code__c': '200',
                 'Message__c': f"Email sent successfully to {smtp_config['username']}",
                 'Request_Payload__c': '',
-                'Response_Payload__c': results,
+                'Response_Payload__c': str(results),
                 'Log_Type__c': 'Python Integration'
             }
         else:
@@ -908,7 +909,7 @@ def main(file_name,file_type,file_extension):
                 'Status_Code__c': '500',
                 'Message__c': 'Email sending failed',
                 'Request_Payload__c': 'None',
-                'Response_Payload__c': results,
+                'Response_Payload__c': str(results),
                 'Log_Type__c': 'Python Integration'
             }
         try:
