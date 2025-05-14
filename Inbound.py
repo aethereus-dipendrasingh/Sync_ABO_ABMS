@@ -844,7 +844,7 @@ def main(file_name,file_type,file_extension):
     try:
         sf = get_salesforce_connection()
         query = f"SELECT Id, Title, VersionDataUrl FROM ContentVersion WHERE Title = '{file_name}' ORDER BY CreatedDate DESC LIMIT 1"
-        df, *dicts = get_salesforce_file(sf,query,file_extension == "csv")
+        df, *dicts = get_salesforce_file(sf,query,file_extension == ".csv")
         # Initialize mappings
         LIDS_mapping = {}
         DANS_candidateMapping = {}
