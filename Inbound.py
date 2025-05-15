@@ -408,6 +408,9 @@ def create_medical_license_records(sf, df, field_mapping):
                     if value in state_code_map:
                         ml_record["Country__c"] = country_code_map.get(value)
                         value = state_code_map[value]
+                    else:
+                        value = "Other"
+                        ml_record["Country__c"] = "Other"
 
                 if "date" in source_field.lower() and pd.notna(value):
                     try:
