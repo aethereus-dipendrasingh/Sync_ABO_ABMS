@@ -321,7 +321,7 @@ def create_contact_records(sf, df, field_mapping):
         contact_records_to_create = []
 
         for idx, row in df.iterrows():
-            board_id = row.get("BoardUniqueID")
+            board_id = row.get("BoardUniqueID") or row.get("Board_Id")
             if not board_id or board_id in abo_ids:
                 logger.info(f"Skipping existing or missing BoardUniqueID for ABO_Id__c: {row.get('ABO_Id__c')}")
                 continue
