@@ -142,7 +142,10 @@ def get_salesforce_file(sf,query,file_type, is_csv):
                     df = pd.read_csv(csv_content, on_bad_lines='warn')
                 else:
                     csv_content = StringIO(response.text)
-                    df = pd.read_csv(csv_content, delimiter="\t", on_bad_lines='warn')
+                    if(file_type == 'LIDS'):
+                        df = pd.read_csv(csv_content, delimiter="\t", on_bad_lines='warn')
+                    else:
+                        df = pd.read_csv(csv_content, delimiter=",", on_bad_lines='warn')
                     logger.info(df.head())
                 
                 # Display the table with headers
