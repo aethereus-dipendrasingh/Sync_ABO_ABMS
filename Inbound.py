@@ -719,9 +719,9 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
             composite_key = '-'.join(
                 parse_date(str(row.get('LicenseExpireDate'))) 
                 if k == 'LicenseExpireDate' and row.get('LicenseExpireDate') 
-                else str(row.get(k))
+                else str(row.get(k)).strip()
                 for k in ['BoardUniqueID', 'LicenseNumber', 'LicenseExpireDate']
-                if row.get(k) is not None
+                if row.get(k) is not None and str(row.get(k)).strip().lower() != 'nan' and str(row.get(k)).strip() != 'NAN' and str(row.get(k)).strip() != ''
             )
 
             contact = {}
