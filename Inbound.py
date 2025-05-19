@@ -63,7 +63,7 @@ class SalesforceAPIError(Exception):
         self.detail = detail or message
         super().__init__(self.message)
 
-def create_integration_log(sf, status_code, message, request_payload, response_payload):
+def create_integration_log(sf, status_code, message, request_payload=None, response_payload=None):
     """
     Create an integration log record in Salesforce.
     
@@ -77,9 +77,9 @@ def create_integration_log(sf, status_code, message, request_payload, response_p
     try:
         integration_log = {
             'Status_Code__c': str(status_code),
-            'Message__c': message,
-            'Request_Payload__c': request_payload,
-            'Response_Payload__c': response_payload,
+            'Message__c': str(message),
+            'Request_Payload__c': str(request_payload),
+            'Response_Payload__c': str(response_payload),
             'Log_Type__c': 'Python Integration'
         }
         sf.Integration_Log__c.create(integration_log)
@@ -620,15 +620,21 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
 
             if contact:
                 if contact not in contact_records_to_create:
+                    logger.info(f"contact: {contact}")
                     contact_records_to_create.append(contact)
             
             if ml_record:
                 if ml_record not in medical_records_to_create:
+                    logger.info(f"ml_record: {ml_record}")
                     ml_record[med_external_id_field] = composite_key
                     logger.info(f"Composite Key: {composite_key}")
                     ml_record[med_external_reference_field] = board_id
                     medical_records_to_create.append(ml_record)
         
+        logger.info(f"Contact records to create: {len(contact_records_to_create)}")
+        logger.info(f"Medical License records to create: {len(medical_records_to_create)}")
+        logger.info(f"Contact records to create: {contact_records_to_create}")
+        logger.info(f"Medical License records to create: {medical_records_to_create}")
         # Convert to DataFrames
         contact_df = pd.DataFrame(contact_records_to_create)
         medical_df = pd.DataFrame(medical_records_to_create)
