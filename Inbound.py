@@ -87,7 +87,7 @@ def get_salesforce_connection():
         user_id = sf.user_id  # Get the ID of the logged-in user
         user_info = sf.User.get(user_id) # Get the info of the logged-in user
         email = user_info['Email']
-        RECEIVER_EMAIL = email
+        RECEIVER_EMAIL = str(email)
         logger.info("Salesforce connection established successfully")
         return sf
     except Exception as e:
