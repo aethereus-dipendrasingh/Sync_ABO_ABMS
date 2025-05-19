@@ -22,7 +22,6 @@ from fastapi.middleware.cors import CORSMiddleware
 SF_API_VERSION = os.getenv('SF_API_VERSION', '58.0') # Use a recent API version
 INSTANCE_URL = ''
 ACCESS_TOKEN = ''
-RECEIVER_EMAIL = ''
 
 app = FastAPI()
 origins = ["*"]
@@ -68,7 +67,7 @@ class SalesforceAPIError(Exception):
 @lru_cache(maxsize=1)
 def get_salesforce_connection():
     """Create and cache Salesforce connection."""
-    global INSTANCE_URL, ACCESS_TOKEN, RECEIVER_EMAIL
+    global INSTANCE_URL, ACCESS_TOKEN
     logger.info("Establishing Salesforce connection")
     try:
         sf = Salesforce(
@@ -656,8 +655,8 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
                     continue
                 
                 if "npi" in source_field.lower() and pd.notna(value):
-                    # Remove leading zeros from NPI
-                    value = value[:10]
+                    # Remove trailing zeros from NPI
+                    value = value.rstrip('.0') if value.endswith('.0') else value
                     logger.info(f"Processed NPI {value} for field {source_field}")
 
                 if "state" in source_field.lower() and pd.notna(value):
@@ -887,9 +886,7 @@ def main(file_name,file_type,file_extension):
         logger.error(f"Unexpected error: {str(e)}", exc_info=True)
 
 @app.get("/create")
-def create_item(file_name: str, file_type: str, file_extension: str, user_email: str):
-    global RECEIVER_EMAIL
-    RECEIVER_EMAIL = user_email
+def create_item(file_name: str, file_type: str, file_extension: str):
     result = main(file_name,file_type,file_extension)
     return result
 
