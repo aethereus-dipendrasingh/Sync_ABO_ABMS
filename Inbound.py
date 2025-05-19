@@ -588,9 +588,9 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
                         logger.warning(f"Invalid date in row {idx}: {value}")
                         continue
 
-                if pd.notna(value):
+                if value is not None and str(value).strip() != '':
                     contact[target_field] = value
-                    logger.info(contact)
+                    logger.info('Contact record:', contact)
 
             # Map fields
             for source_field, target_field in field_mapping.get('Medical_License__c', {}).items():
@@ -623,9 +623,9 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
                         logger.warning(f"Invalid date in row {idx}: {value}")
                         continue
 
-                if pd.notna(value):
+                if value is not None and str(value).strip() != '':
                     ml_record[target_field] = value
-                    logger.info(ml_record)
+                    logger.info('Medical License record:', ml_record)
 
             if contact:
                 if contact not in contact_records_to_create:
@@ -816,8 +816,7 @@ def main(file_name,file_type,file_extension):
             status_code=e.status_code,
             message=f"Salesforce API error: {e.message}",
             request_payload="None",
-            response_payload="None",
-            log_type="Python Integration"
+            response_payload="None"
         )
         logger.error(f"Salesforce API error: {e.message}", exc_info=True)
     except Exception as e:
@@ -826,8 +825,7 @@ def main(file_name,file_type,file_extension):
             status_code=500,
             message=f"Unexpected error: {str(e)}",
             request_payload="None",
-            response_payload="None",
-            log_type="Python Integration"
+            response_payload="None"
         )
         logger.error(f"Unexpected error: {str(e)}", exc_info=True)
 
