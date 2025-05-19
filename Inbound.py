@@ -3,7 +3,6 @@ from datetime import datetime
 from functools import lru_cache
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
-from typing import Dict
 from io import StringIO
 import pandas as pd
 import requests
