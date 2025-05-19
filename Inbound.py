@@ -611,7 +611,7 @@ def create_email_html_body(job_id, object_name, status, total_submitted, total_p
     """
     return html
 
-def process_bulk_upsert(df_data, object_name, external_id_field):
+def process_bulk_upsert(sf, df_data, object_name, external_id_field):
     if df_data.empty:
         print(f"No data to process for {object_name}.")
         return
@@ -630,6 +630,17 @@ def process_bulk_upsert(df_data, object_name, external_id_field):
         job_end_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         html_body = create_email_html_body("N/A", object_name, "JobCreationError", total_submitted_for_job, 0,0,0, job_start_time_str, job_end_time_str)
         send_email_with_attachments(f"FAILED: Salesforce Bulk Job for {object_name}", html_body)
+        integration_log = {
+            'Status_Code__c': '500',
+            'Message__c': f"FAILED: Salesforce Bulk Job for {object_name}",
+            'Request_Payload__c': 'None',
+            'Response_Payload__c': '',
+            'Log_Type__c': 'Python Integration'
+        }
+        try:
+            sf.Integration_Log__c.create(integration_log)
+        except Exception as log_error:
+            logger.error(f"Failed to create integration log: {str(log_error)}")
         return
 
     job_id = job_info['id']
@@ -637,6 +648,17 @@ def process_bulk_upsert(df_data, object_name, external_id_field):
         job_end_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         html_body = create_email_html_body(job_id, object_name, "UploadFailed", total_submitted_for_job, 0,0,0, job_start_time_str, job_end_time_str)
         send_email_with_attachments(f"FAILED: Salesforce Bulk Job Upload for {object_name} (Job ID: {job_id})", html_body)
+        integration_log = {
+            'Status_Code__c': '500',
+            'Message__c': f"FAILED: Salesforce Bulk Job Upload for {object_name} (Job ID: {job_id})",
+            'Request_Payload__c': 'None',
+            'Response_Payload__c': '',
+            'Log_Type__c': 'Python Integration'
+        }
+        try:
+            sf.Integration_Log__c.create(integration_log)
+        except Exception as log_error:
+            logger.error(f"Failed to create integration log: {str(log_error)}")
         return
 
     closed_job_info = close_job(job_id)
@@ -644,6 +666,17 @@ def process_bulk_upsert(df_data, object_name, external_id_field):
         job_end_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         html_body = create_email_html_body(job_id, object_name, "JobCloseFailed", total_submitted_for_job, 0,0,0, job_start_time_str, job_end_time_str)
         send_email_with_attachments(f"FAILED: Salesforce Bulk Job Close for {object_name} (Job ID: {job_id})", html_body)
+        integration_log = {
+            'Status_Code__c': '500',
+            'Message__c': f"FAILED: Salesforce Bulk Job Close for {object_name} (Job ID: {job_id})",
+            'Request_Payload__c': 'None',
+            'Response_Payload__c': '',
+            'Log_Type__c': 'Python Integration'
+        }
+        try:
+            sf.Integration_Log__c.create(integration_log)
+        except Exception as log_error:
+            logger.error(f"Failed to create integration log: {str(log_error)}")
         return
 
     final_job_status = monitor_job_status(job_id)
@@ -678,12 +711,34 @@ def process_bulk_upsert(df_data, object_name, external_id_field):
         email_subject = f"{email_subject_status}: Salesforce Bulk Job for {object_name} (ID: {job_id})"
         html_body = create_email_html_body(job_id, object_name, state, total_submitted_for_job, processed, successful, failed, job_start_time_str, job_end_time_str)
         send_email_with_attachments(email_subject, html_body, attachments_for_email)
+        integration_log = {
+            'Status_Code__c': '200',
+            'Message__c': f"Email sent successfully with result",
+            'Request_Payload__c': '',
+            'Response_Payload__c': str(result),
+            'Log_Type__c': 'Python Integration'
+        }
+        try:
+            sf.Integration_Log__c.create(integration_log)
+        except Exception as log_error:
+            logger.error(f"Failed to create integration log: {str(log_error)}")
         return result
 
     else:
         print(f"Could not determine final status for job {job_id} ({object_name}). Sending failure notification.")
         html_body = create_email_html_body(job_id, object_name, "MonitoringTimeoutOrError", total_submitted_for_job, 0,0,0, job_start_time_str, job_end_time_str)
         send_email_with_attachments(f"ERROR: Salesforce Bulk Job Monitoring for {object_name} (ID: {job_id})", html_body)
+        integration_log = {
+            'Status_Code__c': '500',
+            'Message__c': 'Monitoring timeout or error occurred.',
+            'Request_Payload__c': 'None',
+            'Response_Payload__c': '',
+            'Log_Type__c': 'Python Integration'
+        }
+        try:
+            sf.Integration_Log__c.create(integration_log)
+        except Exception as log_error:
+            logger.error(f"Failed to create integration log: {str(log_error)}")
         return "Monitoring timeout or error occurred."
 
 def parse_date(date_str):
@@ -818,23 +873,45 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
         result = None
         if not df_contacts.empty:
             df_contacts = df_contacts.fillna('')
-            result = process_bulk_upsert(df_contacts, 'Contact', con_external_id_field)
+            result = process_bulk_upsert(sf, df_contacts, 'Contact', con_external_id_field)
         else:
             logger.info("No contact records to process.")
             send_email_with_attachments(
                 f"INFO: Salesforce Bulk Script - No Contacts Processed for Contact",
                 f"<html><body><h1>No Data</h1><p>No valid Contact records were found in <strong>File Shared</strong> for processing.</p></body></html>"
             )
+            integration_log = {
+                'Status_Code__c': '200',
+                'Message__c': "No contact records to process.",
+                'Request_Payload__c': '',
+                'Response_Payload__c': '',
+                'Log_Type__c': 'Python Integration'
+            }
+            try:
+                sf.Integration_Log__c.create(integration_log)
+            except Exception as log_error:
+                logger.error(f"Failed to create integration log: {str(log_error)}")
             result = "No contact records to process."
         if not df_medical.empty:
             df_medical = df_medical.fillna('')
-            result = process_bulk_upsert(df_medical, 'Medical_License__c', med_external_id_field)
+            result = process_bulk_upsert(sf, df_medical, 'Medical_License__c', med_external_id_field)
         else:
             logger.info("No medical license records to process.")
             send_email_with_attachments(
                 f"INFO: Salesforce Bulk Script - No Medical Licenses Processed for Medical License",
                 f"<html><body><h1>No Data</h1><p>No valid Medical License records were found in <strong>File Shared</strong> for processing after filtering.</p></body></html>"
             )
+            integration_log = {
+                'Status_Code__c': '200',
+                'Message__c': "No Medical license records to process.",
+                'Request_Payload__c': '',
+                'Response_Payload__c': '',
+                'Log_Type__c': 'Python Integration'
+            }
+            try:
+                sf.Integration_Log__c.create(integration_log)
+            except Exception as log_error:
+                logger.error(f"Failed to create integration log: {str(log_error)}")
             result += "No Medical license records to process."
         return result
 
@@ -924,13 +1001,24 @@ def prepare_disiciplinary_records(sf, df, file_type, field_mapping):
         result = None
         if not df_disciplinary.empty:
             df_disciplinary = df_disciplinary.fillna('')
-            result = process_bulk_upsert(df_disciplinary, sf_object_name, external_id_field)
+            result = process_bulk_upsert(sf, df_disciplinary, sf_object_name, external_id_field)
         else:
             logger.info("No disciplinary records to process.")
             send_email_with_attachments(
                 f"INFO: Salesforce Bulk Script - No Disciplinary Records Processed for Disciplinary Action",
                 f"<html><body><h1>No Data</h1><p>No valid Disciplinary Action records were found in <strong>File Shared</strong> for processing after filtering.</p></body></html>"
             )
+            integration_log = {
+                'Status_Code__c': '500',
+                'Message__c': "No disciplinary records to process.",
+                'Request_Payload__c': 'None',
+                'Response_Payload__c': '',
+                'Log_Type__c': 'Python Integration'
+            }
+            try:
+                sf.Integration_Log__c.create(integration_log)
+            except Exception as log_error:
+                logger.error(f"Failed to create integration log: {str(log_error)}")
             result = "No disciplinary records to process."
         return result
 
