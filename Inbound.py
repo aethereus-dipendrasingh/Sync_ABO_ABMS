@@ -390,6 +390,9 @@ def upload_sucesss_and_failure_csv_to_salesforce(sf, content, title, library_id)
     logger.info(f"Uploading csv file '{title}' to library {library_id}")
     
     try:
+        # Encode CSV content properly
+        binary_data = content.encode('utf-8')
+        base64_data = base64.b64encode(binary_data).decode('utf-8')  # Base64 string
         # Define a filename for the XML
         filename = f"{title}.csv"
         
@@ -397,7 +400,7 @@ def upload_sucesss_and_failure_csv_to_salesforce(sf, content, title, library_id)
         content_version_data = {
             'Title': title,
             'PathOnClient': filename,
-            'VersionData': content,
+            'VersionData': base64_data,
             'FirstPublishLocationId': library_id
         }
         
