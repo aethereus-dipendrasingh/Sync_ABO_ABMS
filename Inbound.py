@@ -25,9 +25,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 SF_API_VERSION = os.getenv('SF_API_VERSION', '58.0') # Use a recent API version
-
 INSTANCE_URL = ''
 ACCESS_TOKEN = ''
+RECEIVER_EMAIL = ''
 
 app = FastAPI()
 origins = ["*"]
@@ -73,7 +73,7 @@ class SalesforceAPIError(Exception):
 @lru_cache(maxsize=1)
 def get_salesforce_connection():
     """Create and cache Salesforce connection."""
-    global INSTANCE_URL, ACCESS_TOKEN
+    global INSTANCE_URL, ACCESS_TOKEN, RECEIVER_EMAIL
     logger.info("Establishing Salesforce connection")
     try:
         sf = Salesforce(
@@ -84,6 +84,9 @@ def get_salesforce_connection():
         )
         ACCESS_TOKEN = sf.session_id
         INSTANCE_URL = f"https://{sf.sf_instance}"
+        user_info = sf.User.get(sf.user_id) # Get the info of the logged-in user
+        email = user_info['Email']
+        RECEIVER_EMAIL = email
         logger.info("Salesforce connection established successfully")
         return sf
     except Exception as e:
@@ -332,7 +335,7 @@ def close_job(job_id):
         logger.info(f"Error closing job {job_id}: {e}")
     return None
 
-def monitor_job_status(job_id, poll_interval=10, timeout_seconds=600):
+def monitor_job_status(job_id, poll_interval=10, timeout_seconds=200):
     """Monitors the job status until it's completed or failed."""
     logger.info(f"Monitoring job ID: {job_id}...")
     url = f"{INSTANCE_URL}/services/data/v{SF_API_VERSION}/jobs/ingest/{job_id}"
@@ -391,10 +394,10 @@ def send_email_with_attachments(subject, html_body, attachments=None):
     smtp_config = {
         "host": "smtp.gmail.com",
         "port": 587,
-        "username": "aethereus12@gmail.com",
+        "username": os.getevn("SENDER_EMAIL"),
         "password": os.getenv("GMAIL_APP_PASSWORD"),
-        "sender_email": "aethereus12@gmail.com",
-        "receiver_email": "aethereus12@gmail.com"
+        "sender_email": os.getevn("SENDER_EMAIL"),
+        "receiver_email": RECEIVER_EMAIL
     }
     SMTP_SERVER = smtp_config.get("host")
     SMTP_PORT = smtp_config.get("port")
@@ -440,9 +443,11 @@ def send_email_with_attachments(subject, html_body, attachments=None):
         print(f"Error sending email: {e}")
 
 def create_email_html_body(job_id, object_name, status, total_submitted, total_processed, total_successful, total_failed, start_time_str, end_time_str):
-    # Calculate success rate and processing time
+    # Calculate metrics
     success_rate = (total_successful / total_processed * 100) if total_processed > 0 else 0
-    # Basic duration calculation
+    failure_rate = 100 - success_rate if total_processed > 0 else 0
+    
+    # Calculate duration with proper formatting
     duration_str = "N/A"
     if start_time_str and end_time_str:
         try:
@@ -450,10 +455,24 @@ def create_email_html_body(job_id, object_name, status, total_submitted, total_p
             tstart = datetime.strptime(start_time_str, fmt)
             tend = datetime.strptime(end_time_str, fmt)
             duration = tend - tstart
-            duration_str = str(duration).split('.')[0] # Remove microseconds
+            total_seconds = duration.total_seconds()
+            
+            # Format duration human-readable
+            hours, remainder = divmod(total_seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            duration_str = f"{int(hours)}h {int(minutes)}m {int(seconds)}s"
         except ValueError:
-            duration_str = "Error calculating duration"
+            duration_str = "Invalid timestamps"
 
+    # Generate progress bar HTML
+    def progress_bar(value, color):
+        return f"""
+        <div class="progress-container">
+            <div class="progress-bar" style="width: {value}%; background-color: {color};">
+                <span class="progress-text">{value:.1f}%</span>
+            </div>
+        </div>
+        """
 
     html = f"""
     <!DOCTYPE html>
@@ -463,147 +482,375 @@ def create_email_html_body(job_id, object_name, status, total_submitted, total_p
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Salesforce Bulk Job Report</title>
         <style>
+            /* Base Styles */
             body {{
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
                 margin: 0;
                 padding: 0;
-                background-color: #f4f7f6;
-                color: #333;
+                background-color: #f5f7fa;
+                color: #2d3748;
+                line-height: 1.6;
             }}
+            
+            /* Container */
             .container {{
-                width: 90%;
+                width: 100%;
                 max-width: 700px;
                 margin: 20px auto;
                 background-color: #ffffff;
-                border-radius: 12px;
-                box-shadow: 0 8px 25px rgba(0,0,0,0.1);
-                overflow: hidden; /* For border-radius to affect children */
+                border-radius: 16px;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+                overflow: hidden;
+                border: 1px solid #e2e8f0;
             }}
+            
+            /* Header */
             .header {{
-                background: linear-gradient(135deg, #007bff, #0056b3); /* Modern blue gradient */
+                background: linear-gradient(135deg, #4f46e5, #7c3aed);
                 color: white;
-                padding: 30px 25px;
+                padding: 32px 25px;
                 text-align: center;
-                border-bottom: 5px solid #004085;
+                position: relative;
+                overflow: hidden;
             }}
+            
+            .header::before {{
+                content: "";
+                position: absolute;
+                top: -50%;
+                left: -50%;
+                width: 200%;
+                height: 200%;
+                background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 70%);
+                transform: rotate(30deg);
+                animation: shine 8s infinite linear;
+            }}
+            
             .header h1 {{
                 margin: 0;
                 font-size: 28px;
-                font-weight: 600;
+                font-weight: 700;
                 letter-spacing: 0.5px;
+                position: relative;
+                text-shadow: 0 2px 4px rgba(0,0,0,0.1);
             }}
-            .content {{
-                padding: 25px;
-            }}
-            .content h2 {{
-                color: #0056b3;
-                border-bottom: 2px solid #e0e0e0;
-                padding-bottom: 8px;
-                margin-top: 0;
-                font-size: 22px;
-            }}
-            .status-badge {{
-                display: inline-block;
-                padding: 8px 15px;
-                border-radius: 20px;
-                font-weight: bold;
+            
+            .header p {{
+                margin: 8px 0 0;
+                opacity: 0.9;
                 font-size: 16px;
+                position: relative;
+            }}
+            
+            /* Content */
+            .content {{
+                padding: 30px;
+            }}
+            
+            .section-title {{
+                color: #4f46e5;
+                font-size: 20px;
+                font-weight: 600;
+                margin: 0 0 20px;
+                position: relative;
+                padding-bottom: 10px;
+            }}
+            
+            .section-title::after {{
+                content: "";
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                width: 50px;
+                height: 3px;
+                background: linear-gradient(90deg, #4f46e5, #a78bfa);
+                border-radius: 3px;
+            }}
+            
+            /* Status Badge */
+            .status-badge {{
+                display: inline-flex;
+                align-items: center;
+                padding: 10px 18px;
+                border-radius: 24px;
+                font-weight: 600;
+                font-size: 14px;
                 text-transform: uppercase;
                 letter-spacing: 0.5px;
-                margin-bottom: 15px;
+                margin-bottom: 20px;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+                position: relative;
+                overflow: hidden;
+                transition: all 0.3s ease;
             }}
-            .status-JobComplete {{ background-color: #28a745; color: white; }} /* Green */
-            .status-Failed {{ background-color: #dc3545; color: white; }} /* Red */
-            .status-Aborted {{ background-color: #ffc107; color: black; }} /* Yellow */
-            .status-InProgress, .status-UploadComplete {{ background-color: #17a2b8; color: white; }} /* Teal */
-
-            .summary-grid {{
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-                gap: 15px;
-                margin-top: 20px;
+            
+            .status-badge::after {{
+                content: "";
+                position: absolute;
+                top: -50%;
+                left: -50%;
+                width: 200%;
+                height: 200%;
+                background: linear-gradient(
+                    to bottom right,
+                    rgba(255, 255, 255, 0.3) 0%,
+                    rgba(255, 255, 255, 0) 60%
+                );
+                transform: rotate(30deg);
             }}
-            .summary-item {{
-                background-color: #f8f9fa;
-                padding: 15px;
-                border-radius: 8px;
-                text-align: center;
-                border: 1px solid #e9ecef;
-                transition: transform 0.3s ease, box-shadow 0.3s ease;
-            }}
-            .summary-item:hover {{
-                transform: translateY(-5px);
+            
+            .status-badge:hover {{
+                transform: translateY(-2px);
                 box-shadow: 0 6px 12px rgba(0,0,0,0.1);
             }}
+            
+            .status-JobComplete {{ 
+                background-color: #10b981;
+                color: white;
+            }}
+            
+            .status-Failed {{ 
+                background-color: #ef4444;
+                color: white;
+            }}
+            
+            .status-Aborted {{ 
+                background-color: #f59e0b;
+                color: white;
+            }}
+            
+            .status-InProgress, .status-UploadComplete {{ 
+                background-color: #3b82f6;
+                color: white;
+            }}
+            
+            /* Summary Grid */
+            .summary-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+                gap: 20px;
+                margin: 30px 0;
+            }}
+            
+            .summary-item {{
+                background-color: #ffffff;
+                padding: 20px;
+                border-radius: 12px;
+                text-align: center;
+                border: 1px solid #e2e8f0;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+                transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+                position: relative;
+                overflow: hidden;
+                z-index: 1;
+            }}
+            
+            .summary-item::before {{
+                content: "";
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 4px;
+                background: linear-gradient(90deg, #4f46e5, #a78bfa);
+            }}
+            
+            .summary-item:hover {{
+                transform: translateY(-5px);
+                box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+            }}
+            
             .summary-item .label {{
                 font-size: 14px;
-                color: #6c757d;
+                color: #64748b;
                 display: block;
-                margin-bottom: 5px;
+                margin-bottom: 8px;
+                font-weight: 500;
             }}
+            
             .summary-item .value {{
-                font-size: 22px;
-                font-weight: bold;
-                color: #0056b3;
+                font-size: 28px;
+                font-weight: 700;
+                color: #1e293b;
+                margin: 8px 0;
+                display: block;
             }}
-            .summary-item .value.success {{ color: #28a745; }}
-            .summary-item .value.error {{ color: #dc3545; }}
+            
+            .summary-item .value.success {{ color: #10b981; }}
+            .summary-item .value.error {{ color: #ef4444; }}
+            .summary-item .value.warning {{ color: #f59e0b; }}
+            
+            /* Progress Bars */
+            .progress-container {{
+                width: 100%;
+                height: 24px;
+                background-color: #e2e8f0;
+                border-radius: 12px;
+                overflow: hidden;
+                margin: 15px 0;
+                position: relative;
+            }}
+            
+            .progress-bar {{
+                height: 100%;
+                border-radius: 12px;
+                transition: width 1.5s ease-out;
+                position: relative;
+            }}
+            
+            .progress-text {{
+                position: absolute;
+                right: 8px;
+                top: 50%;
+                transform: translateY(-50%);
+                color: white;
+                font-size: 12px;
+                font-weight: 600;
+                text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+            }}
+            
+            /* Job Info */
+            .job-info {{
+                background-color: #f8fafc;
+                border-radius: 12px;
+                padding: 20px;
+                margin: 25px 0;
+                border: 1px solid #e2e8f0;
+            }}
+            
+            .job-info p {{
+                margin: 8px 0;
+                display: flex;
+            }}
+            
+            .job-info strong {{
+                min-width: 140px;
+                color: #64748b;
+                font-weight: 500;
+            }}
+            
+            /* Footer */
             .footer {{
                 text-align: center;
-                padding: 20px;
-                font-size: 12px;
-                color: #777;
-                background-color: #e9ecef;
-                border-top: 1px solid #dee2e6;
+                padding: 25px;
+                font-size: 13px;
+                color: #64748b;
+                background-color: #f8fafc;
+                border-top: 1px solid #e2e8f0;
             }}
-            .timestamp {{ font-style: italic; }}
-            /* Animation for numbers - simple fade in */
+            
+            .timestamp {{
+                font-style: italic;
+                color: #64748b;
+                font-size: 14px;
+            }}
+            
+            /* Animations */
             @keyframes fadeIn {{
                 from {{ opacity: 0; transform: translateY(10px); }}
                 to {{ opacity: 1; transform: translateY(0); }}
             }}
-            .value {{
-                animation: fadeIn 0.5s ease-out;
+            
+            @keyframes shine {{
+                0% {{ transform: rotate(30deg) translate(-10%, -10%); }}
+                100% {{ transform: rotate(30deg) translate(10%, 10%); }}
+            }}
+            
+            @keyframes pulse {{
+                0% {{ box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.4); }}
+                70% {{ box-shadow: 0 0 0 10px rgba(79, 70, 229, 0); }}
+                100% {{ box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); }}
+            }}
+            
+            .animated {{
+                animation: fadeIn 0.6s ease-out forwards;
+            }}
+            
+            .delay-1 {{ animation-delay: 0.1s; }}
+            .delay-2 {{ animation-delay: 0.2s; }}
+            .delay-3 {{ animation-delay: 0.3s; }}
+            .delay-4 {{ animation-delay: 0.4s; }}
+            .delay-5 {{ animation-delay: 0.5s; }}
+            
+            .pulse {{
+                animation: pulse 2s infinite;
+                border-radius: 12px;
+            }}
+            
+            /* Responsive */
+            @media (max-width: 600px) {{
+                .summary-grid {{
+                    grid-template-columns: 1fr;
+                }}
+                
+                .content {{
+                    padding: 20px;
+                }}
             }}
         </style>
     </head>
     <body>
-        <div class="container">
+        <div class="container pulse">
             <div class="header">
-                <h1>Salesforce Bulk Job Report</h1>
+                <h1 class="animated">Salesforce Bulk Data Load Report</h1>
+                <p class="animated delay-1">Your job processing summary</p>
             </div>
+            
             <div class="content">
-                <h2>Job Summary: {object_name}</h2>
-                <p><span class="status-badge status-{status}">{status}</span></p>
-                <p><strong>Job ID:</strong> {job_id}</p>
-                <p class="timestamp"><strong>Processing Time:</strong> {duration_str} (Started: {start_time_str}, Ended: {end_time_str})</p>
-
+                <h2 class="section-title animated delay-1">Job Overview</h2>
+                
+                <div class="job-info animated delay-2">
+                    <p><strong>Object Name:</strong> {object_name}</p>
+                    <p><strong>Job ID:</strong> {job_id}</p>
+                    <p><strong>Status:</strong> <span class="status-badge status-{status}">{status}</span></p>
+                    <p><strong>Processing Time:</strong> {duration_str}</p>
+                    <p class="timestamp">Started: {start_time_str} • Ended: {end_time_str}</p>
+                </div>
+                
+                <h2 class="section-title animated delay-2">Performance Metrics</h2>
+                
                 <div class="summary-grid">
-                    <div class="summary-item">
+                    <div class="summary-item animated delay-1">
                         <span class="label">Total Submitted</span>
                         <span class="value">{total_submitted}</span>
                     </div>
-                    <div class="summary-item">
+                    
+                    <div class="summary-item animated delay-2">
                         <span class="label">Total Processed</span>
                         <span class="value">{total_processed}</span>
                     </div>
-                    <div class="summary-item">
-                        <span class="label">Successfully Processed</span>
+                    
+                    <div class="summary-item animated delay-3">
+                        <span class="label">Successful</span>
                         <span class="value success">{total_successful}</span>
+                        {progress_bar(success_rate, '#10b981') if total_processed > 0 else ''}
                     </div>
-                    <div class="summary-item">
-                        <span class="label">Failed Records</span>
+                    
+                    <div class="summary-item animated delay-4">
+                        <span class="label">Failed</span>
                         <span class="value error">{total_failed}</span>
+                        {progress_bar(failure_rate, '#ef4444') if total_processed > 0 else ''}
                     </div>
-                     <div class="summary-item">
+                    
+                    <div class="summary-item animated delay-5">
                         <span class="label">Success Rate</span>
-                        <span class="value {'success' if success_rate > 90 else 'error' if success_rate < 70 else ''}">{success_rate:.2f}%</span>
+                        <span class="value {'success' if success_rate > 90 else 'error' if success_rate < 70 else 'warning'}">{success_rate:.2f}%</span>
+                        <div class="progress-container">
+                            <div class="progress-bar" style="width: {success_rate}%; background-color: {'#10b981' if success_rate > 90 else '#ef4444' if success_rate < 70 else '#f59e0b'};">
+                                <span class="progress-text">{success_rate:.1f}%</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <p style="margin-top: 25px;">Please find attached CSV files for detailed successful and failed records, if any.</p>
+                
+                <div class="animated delay-3" style="margin-top: 30px; padding: 15px; background-color: #f0fdf4; border-radius: 8px; border-left: 4px solid #10b981;">
+                    <p style="margin: 0; color: #065f46; font-weight: 500;">📌 Please find attached CSV files with detailed results for your records.</p>
+                </div>
             </div>
-            <div class="footer">
-                This is an automated report. Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S %Z')}
+            
+            <div class="footer animated delay-4">
+                <p>This report was automatically generated on {datetime.now().strftime('%Y-%m-%d at %H:%M:%S %Z')}</p>
+                <p style="margin-top: 8px; font-size: 12px; color: #94a3b8;">© {datetime.now().year} Salesforce Operations</p>
             </div>
         </div>
     </body>
@@ -820,7 +1067,7 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
                 
                 if "npi" in source_field.lower() and pd.notna(value):
                     # Remove leading zeros from NPI
-                    value = int(float(value))
+                    value = value[:10]
                     logger.info(f"Processed NPI {value} for field {source_field}")
 
                 if "state" in source_field.lower() and pd.notna(value):
@@ -959,7 +1206,7 @@ def prepare_disiciplinary_records(sf, df, file_type, field_mapping):
                 parse_date(str(row.get('Order_Date'))) 
                 if k == 'Order_Date' and row.get('Order_Date') 
                 else str(row.get(k))
-                for k in ['Board_Id', 'Statistical_Code', 'action_code', 'Order_Date','basis_code']
+                for k in ['Board_Id', 'Order_Date', 'action_code', 'basis_code', 'Statistical_Code']
                 if row.get(k) is not None
             )
 
