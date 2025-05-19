@@ -652,7 +652,7 @@ def process_bulk_upsert(sf, df_data, object_name, external_id_field):
             'Status_Code__c': '500',
             'Message__c': f"FAILED: Salesforce Bulk Job Upload for {object_name} (Job ID: {job_id})",
             'Request_Payload__c': 'None',
-            'Response_Payload__c': '',
+            'Response_Payload__c': str(job_id),
             'Log_Type__c': 'Python Integration'
         }
         try:
@@ -670,7 +670,7 @@ def process_bulk_upsert(sf, df_data, object_name, external_id_field):
             'Status_Code__c': '500',
             'Message__c': f"FAILED: Salesforce Bulk Job Close for {object_name} (Job ID: {job_id})",
             'Request_Payload__c': 'None',
-            'Response_Payload__c': '',
+            'Response_Payload__c': str(job_id),
             'Log_Type__c': 'Python Integration'
         }
         try:
@@ -732,7 +732,7 @@ def process_bulk_upsert(sf, df_data, object_name, external_id_field):
             'Status_Code__c': '500',
             'Message__c': 'Monitoring timeout or error occurred.',
             'Request_Payload__c': 'None',
-            'Response_Payload__c': '',
+            'Response_Payload__c': str(job_id),
             'Log_Type__c': 'Python Integration'
         }
         try:
