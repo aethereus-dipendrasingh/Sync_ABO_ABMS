@@ -64,6 +64,29 @@ class SalesforceAPIError(Exception):
         self.detail = detail or message
         super().__init__(self.message)
 
+def create_integration_log(sf, status_code, message, request_payload, response_payload):
+    """
+    Create an integration log record in Salesforce.
+    
+    Args:
+        sf: Salesforce connection object
+        status_code: HTTP status code
+        message: Message to log
+        request_payload: Request payload
+        response_payload: Response payload
+    """
+    try:
+        integration_log = {
+            'Status_Code__c': str(status_code),
+            'Message__c': message,
+            'Request_Payload__c': request_payload,
+            'Response_Payload__c': response_payload,
+            'Log_Type__c': 'Python Integration'
+        }
+        sf.Integration_Log__c.create(integration_log)
+    except Exception as e:
+        logger.error(f"Failed to create integration log: {str(e)}")
+
 @lru_cache(maxsize=1)
 def get_salesforce_connection():
     """Create and cache Salesforce connection."""
@@ -174,9 +197,12 @@ def get_salesforce_file(sf,query,file_type, is_csv):
                             return df, lids_all_active_mapping
                         else:
                             return df, dans_candidates_mapping, dans_diplomates_mapping
-                
+                else:
+                    logger.info("No field mapping found for the specified file type.")
+                    raise Exception("No field mapping found for the specified file type.")
             except requests.exceptions.RequestException as e:
                 logger.info(f"Error downloading the file: {e}")
+                raise SalesforceAPIError(f"Error downloading the file: {e}", status_code=500)
         else:
             logger.info("No ContentVersion record found with the specified title.")
             raise Exception("Sample.csv not found.")
@@ -227,30 +253,7 @@ def get_state_code_mapping(sf):
         
     except Exception as e:
         logger.error(f"Error querying State_Code_Mapping__mdt: {str(e)}", exc_info=True)
-        return {}
-
-
-
-    """
-    Post a batch of records to Salesforce Composite API.
-
-    Parameters:
-        payload (Dict): JSON payload structured for Salesforce Composite API.
-        instance_url (str): Salesforce instance URL.
-        headers (Dict): Headers for the request.
-
-    Returns:
-        List[requests.Response]: List of responses from the API.
-    """
-    response = requests.post(instance_url, headers=headers, data=json.dumps(payload))
-    logger.info(f"Posting batch to {instance_url} with payload: {json.dumps(payload, indent=4)}")
-    logger.info(f"Response: {response.json()}")
-
-    if response.status_code != 200:
-        logger.error(f"Failed to post batch: {response.text}", exc_info=True)
-        # raise SalesforceAPIError(f"Failed to post batch: {response.text}", status_code=response.status_code)
-
-    return response.json().get("results", [])
+        return {}, {}
 
 def create_bulk_job(object_name, operation, external_id_field_name=None):
     """Creates a Bulk API 2.0 job."""
@@ -452,7 +455,7 @@ def upload_sucesss_and_failure_csv_to_salesforce(sf, content, title, library_id)
 
 def process_bulk_upsert(sf, df_data, object_name, external_id_field):
     if df_data.empty:
-        print(f"No data to process for {object_name}.")
+        logging.warning(f"No data to process for {object_name}.")
         return
 
     total_submitted_for_job = len(df_data)
@@ -463,48 +466,15 @@ def process_bulk_upsert(sf, df_data, object_name, external_id_field):
 
     job_info = create_bulk_job(object_name, 'upsert', external_id_field)
     if not job_info:
-        integration_log = {
-            'Status_Code__c': '500',
-            'Message__c': f"FAILED: Salesforce Bulk Job for {object_name}",
-            'Request_Payload__c': 'None',
-            'Response_Payload__c': '',
-            'Log_Type__c': 'Python Integration'
-        }
-        try:
-            sf.Integration_Log__c.create(integration_log)
-        except Exception as log_error:
-            logger.error(f"Failed to create integration log: {str(log_error)}")
-        return
+        raise SalesforceAPIError("Failed to create Bulk API job", 500)
 
     job_id = job_info['id']
     if not upload_job_data(job_id, csv_content):
-        integration_log = {
-            'Status_Code__c': '500',
-            'Message__c': f"FAILED: Salesforce Bulk Job Upload for {object_name} (Job ID: {job_id})",
-            'Request_Payload__c': 'None',
-            'Response_Payload__c': str(job_id),
-            'Log_Type__c': 'Python Integration'
-        }
-        try:
-            sf.Integration_Log__c.create(integration_log)
-        except Exception as log_error:
-            logger.error(f"Failed to create integration log: {str(log_error)}")
-        return
+        raise SalesforceAPIError(f"FAILED: Salesforce Bulk Job Upload for {object_name} (Job ID: {job_id})", 500)
 
     closed_job_info = close_job(job_id)
     if not closed_job_info:
-        integration_log = {
-            'Status_Code__c': '500',
-            'Message__c': f"FAILED: Salesforce Bulk Job Close for {object_name} (Job ID: {job_id})",
-            'Request_Payload__c': 'None',
-            'Response_Payload__c': str(job_id),
-            'Log_Type__c': 'Python Integration'
-        }
-        try:
-            sf.Integration_Log__c.create(integration_log)
-        except Exception as log_error:
-            logger.error(f"Failed to create integration log: {str(log_error)}")
-        return
+        raise SalesforceAPIError(f"FAILED: Salesforce Bulk Job Close for {object_name} (Job ID: {job_id})", 500)
 
     final_job_status = monitor_job_status(job_id)
     successful_csv_data = None
@@ -542,41 +512,17 @@ def process_bulk_upsert(sf, df_data, object_name, external_id_field):
             if failed_csv_data:
                 # Upload failed CSV to Salesforce
                 upload_sucesss_and_failure_csv_to_salesforce(sf, failed_csv_data, f"failed_records_{object_name}_{job_id}", library_id)
-        
-        integration_log = {
-            'Status_Code__c': '200',
-            'Message__c': f"Result saved to Content Library: {library_id}",
-            'Request_Payload__c': '',
-            'Response_Payload__c': str(result),
-            'Log_Type__c': 'Python Integration'
-        }
-        try:
-            sf.Integration_Log__c.create(integration_log)
-        except Exception as log_error:
-            logger.error(f"Failed to create integration log: {str(log_error)}")
         return result
-
     else:
         print(f"Could not determine final status for job {job_id} ({object_name}).")
-        integration_log = {
-            'Status_Code__c': '500',
-            'Message__c': 'Monitoring timeout or error occurred.',
-            'Request_Payload__c': 'None',
-            'Response_Payload__c': str(job_id),
-            'Log_Type__c': 'Python Integration'
-        }
-        try:
-            sf.Integration_Log__c.create(integration_log)
-        except Exception as log_error:
-            logger.error(f"Failed to create integration log: {str(log_error)}")
-        return "Monitoring timeout or error occurred."
+        raise SalesforceAPIError(f"Could not determine final status for job {job_id} ({object_name}).", 500)
 
 def parse_date(date_str):
     try:
         return datetime.strptime(date_str, "%m/%d/%Y").strftime("%Y-%m-%d")
     except ValueError:
         try:
-            return datetime.strptime(date_str, "%m-%d-%Y").strftime("%Y-%m-%d")
+            return datetime.strptime(date_str, "%d-%m-%Y").strftime("%Y-%m-%d")
         except ValueError:
             return date_str  # fallback if neither format matches
 
@@ -603,7 +549,7 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
         medical_records_to_create = []
 
         for idx, row in df.iterrows():
-            board_id = row.get("BoardUniqueID") or row.get("Board_Id")
+            board_id = row.get("BoardUniqueID")
             composite_key = '-'.join(
                 parse_date(str(row.get('LicenseExpireDate'))) 
                 if k == 'LicenseExpireDate' and row.get('LicenseExpireDate') 
@@ -619,7 +565,7 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
             for source_field, target_field in field_mapping.get('Contact', {}).items():
                 value = str(row.get(source_field)).strip()
 
-                if value is not None and ("#" in str(value) or "nan" in str(value) or "NAN" in str(value)):
+                if value is not None and ("#" in str(value) or '' in str(value) or "nan" in str(value) or "NAN" in str(value)):
                     continue
 
                 if "gender" in source_field.lower() and pd.notna(value):
@@ -628,11 +574,11 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
                     elif value == "F":
                         value = "Female"
                     else:
-                        value = ""
+                        continue
 
                 if "date" in source_field.lower() and pd.notna(value):
                     try:
-                        value = datetime.strptime(value, "%m/%d/%Y").strftime("%Y-%m-%d")
+                        value = parse_date(value)
                         logger.info(f"Parsed date {value} for field {source_field}")
                     except ValueError:
                         logger.warning(f"Invalid date in row {idx}: {value}")
@@ -645,7 +591,7 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
             for source_field, target_field in field_mapping.get('Medical_License__c', {}).items():
                 value = str(row.get(source_field)).strip()
 
-                if value is not None and ("#" in str(value) or "nan" in str(value) or "NAN" in str(value)):
+                if value is not None and ("#" in str(value) or '' in str(value) or "nan" in str(value) or "NAN" in str(value)):
                     continue
                 
                 if "npi" in source_field.lower() and pd.notna(value):
@@ -664,7 +610,7 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
 
                 if "date" in source_field.lower() and pd.notna(value):
                     try:
-                        value = datetime.strptime(value, "%m/%d/%Y").strftime("%Y-%m-%d")
+                        value = parse_date(value)
                         logger.info(f"Parsed date {value} for field {source_field}")
                     except ValueError:
                         logger.warning(f"Invalid date in row {idx}: {value}")
@@ -700,43 +646,28 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
         logger.info(contact_df)
         logger.info("Medical License DataFrame:")
         logger.info(medical_df)
-        result = None
+        contact_result = None
+        medical_result = None
         if not df_contacts.empty:
             df_contacts = df_contacts.fillna('')
-            result = process_bulk_upsert(sf, df_contacts, 'Contact', con_external_id_field)
+            contact_result = process_bulk_upsert(sf, df_contacts, 'Contact', con_external_id_field)
         else:
             logger.info("No contact records to process.")
-            integration_log = {
-                'Status_Code__c': '200',
-                'Message__c': "No contact records to process.",
-                'Request_Payload__c': '',
-                'Response_Payload__c': '',
-                'Log_Type__c': 'Python Integration'
-            }
-            try:
-                sf.Integration_Log__c.create(integration_log)
-            except Exception as log_error:
-                logger.error(f"Failed to create integration log: {str(log_error)}")
-            result = "No contact records to process."
+            contact_result = "No contact records to process."
         if not df_medical.empty:
             df_medical = df_medical.fillna('')
-            result = process_bulk_upsert(sf, df_medical, 'Medical_License__c', med_external_id_field)
+            medical_result = process_bulk_upsert(sf, df_medical, 'Medical_License__c', med_external_id_field)
         else:
             logger.info("No medical license records to process.")
-            integration_log = {
-                'Status_Code__c': '200',
-                'Message__c': "No Medical license records to process.",
-                'Request_Payload__c': '',
-                'Response_Payload__c': '',
-                'Log_Type__c': 'Python Integration'
-            }
-            try:
-                sf.Integration_Log__c.create(integration_log)
-            except Exception as log_error:
-                logger.error(f"Failed to create integration log: {str(log_error)}")
-            result += "No Medical license records to process."
-        return result
-
+            medical_result = "No Medical license records to process."
+            if contact_result == "No contact records to process.":
+                raise SalesforceAPIError("No contact & Medical license records to process.", status_code=500)
+            else:
+                raise SalesforceAPIError("No Medical license records to process.", status_code=500)
+        return str(contact_result)+str(medical_result)
+    except SalesforceAPIError as e:
+        logger.error(f"Error: {e.message}", exc_info=True)
+        raise SalesforceAPIError(f"Error: {e.message}", status_code=e.status_code)
     except Exception as e:
         logger.error(f"Error creating contact: {str(e)}", exc_info=True)
         raise SalesforceAPIError(f"Error creating contact: {str(e)}", status_code=500)
@@ -790,12 +721,12 @@ def prepare_disiciplinary_records(sf, df, file_type, field_mapping):
             for source_field, target_field in field_mapping.get('Disciplinary_Actions__c', {}).items():
                 value = str(row.get(source_field)).strip()
 
-                if value is not None and "#" in str(value):
+                if value is not None and ("#" in str(value) or '' in str(value) or "nan" in str(value) or "NAN" in str(value)):
                     continue
 
                 if "date" in source_field.lower() and pd.notna(value):
                     try:
-                        value = datetime.strptime(value, "%m/%d/%Y").strftime("%Y-%m-%d")
+                        value = parse_date(value)
                         logger.info(f"Parsed date {value} for field {source_field}")
                     except ValueError:
                         logger.warning(f"Invalid date in row {idx}: {value}")
@@ -825,20 +756,12 @@ def prepare_disiciplinary_records(sf, df, file_type, field_mapping):
             result = process_bulk_upsert(sf, df_disciplinary, sf_object_name, external_id_field)
         else:
             logger.info("No disciplinary records to process.")
-            integration_log = {
-                'Status_Code__c': '500',
-                'Message__c': "No disciplinary records to process.",
-                'Request_Payload__c': 'None',
-                'Response_Payload__c': '',
-                'Log_Type__c': 'Python Integration'
-            }
-            try:
-                sf.Integration_Log__c.create(integration_log)
-            except Exception as log_error:
-                logger.error(f"Failed to create integration log: {str(log_error)}")
             result = "No disciplinary records to process."
+            raise SalesforceAPIError("No disciplinary records to process.", status_code=500)
         return result
-
+    except SalesforceAPIError as e:
+        logger.error(f"Error: {e.message}", exc_info=True)
+        raise SalesforceAPIError(f"Error: {e.message}", status_code=e.status_code)
     except Exception as e:
         logger.error(f"Error creating contact: {str(e)}", exc_info=True)
         raise SalesforceAPIError(f"Error creating contact: {str(e)}", status_code=500) 
@@ -871,12 +794,27 @@ def main(file_name,file_type,file_extension):
             result = prepare_disiciplinary_records(sf, df, file_type, DANS_candidateMapping)
         elif(file_type == "DANS_Diplomate"):
             result = prepare_disiciplinary_records(sf, df, file_type, DANS_diplomateMapping)
-
         return result
         
     except SalesforceAPIError as e:
+        create_integration_log(
+            sf,
+            status_code=e.status_code,
+            message=f"Salesforce API error: {e.message}",
+            request_payload="None",
+            response_payload="None",
+            log_type="Python Integration"
+        )
         logger.error(f"Salesforce API error: {e.message}", exc_info=True)
     except Exception as e:
+        create_integration_log(
+            sf,
+            status_code=500,
+            message=f"Unexpected error: {str(e)}",
+            request_payload="None",
+            response_payload="None",
+            log_type="Python Integration"
+        )
         logger.error(f"Unexpected error: {str(e)}", exc_info=True)
 
 @app.get("/create")
