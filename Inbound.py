@@ -84,7 +84,7 @@ def get_salesforce_connection():
         )
         ACCESS_TOKEN = sf.session_id
         INSTANCE_URL = f"https://{sf.sf_instance}"
-        user_id = sf.user_id  # Get the ID of the logged-in user
+        user_id = str(sf.user_id)  # Get the ID of the logged-in user
         user_info = sf.User.get(user_id) # Get the info of the logged-in user
         email = user_info['Email']
         RECEIVER_EMAIL = str(email)
