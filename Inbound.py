@@ -84,10 +84,6 @@ def get_salesforce_connection():
         )
         ACCESS_TOKEN = sf.session_id
         INSTANCE_URL = f"https://{sf.sf_instance}"
-        user_id = str(sf.user_id)  # Get the ID of the logged-in user
-        user_info = sf.User.get(user_id) # Get the info of the logged-in user
-        email = user_info['Email']
-        RECEIVER_EMAIL = str(email)
         logger.info("Salesforce connection established successfully")
         return sf
     except Exception as e:
@@ -1311,7 +1307,9 @@ def main(file_name,file_type,file_extension):
         logger.error(f"Unexpected error: {str(e)}", exc_info=True)
 
 @app.get("/create")
-def create_item(file_name: str, file_type: str, file_extension: str):
+def create_item(file_name: str, file_type: str, file_extension: str, user_email: str):
+    global RECEIVER_EMAIL
+    RECEIVER_EMAIL = user_email
     result = main(file_name,file_type,file_extension)
     return result
 
