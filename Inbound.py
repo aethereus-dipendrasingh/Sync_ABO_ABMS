@@ -391,9 +391,9 @@ def send_email_with_attachments(subject, html_body, attachments=None):
     smtp_config = {
         "host": "smtp.gmail.com",
         "port": 587,
-        "username": os.getevn("SENDER_EMAIL"),
+        "username": os.getenv("SENDER_EMAIL"),
         "password": os.getenv("GMAIL_APP_PASSWORD"),
-        "sender_email": os.getevn("SENDER_EMAIL"),
+        "sender_email": os.getenv("SENDER_EMAIL"),
         "receiver_email": RECEIVER_EMAIL
     }
     SMTP_SERVER = smtp_config.get("host")
