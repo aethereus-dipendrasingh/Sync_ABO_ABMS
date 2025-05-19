@@ -169,10 +169,6 @@ def get_salesforce_file(sf,query,file_type, is_csv):
                         logger.info("CSV file converted to DataFrame successfully3")
                         logger.info(df.head())
                     logger.info(df.head())
-                
-                # Display the table with headers
-                logger.info("CSV file successfully downloaded and converted to table:")
-                logger.info(df)
 
                 query = f"SELECT Id,DANS_Candidates_Field_Mapping__c, DANS_Diplomates_Field_Mapping__c,  LIDS_All_Active_Field_Mapping__c FROM ABOP_Migration__c WHERE Is_Active__c =true AND XML_Type__c = '{file_type}'"
                 sfFieldMapping = sf.query(query)
@@ -554,6 +550,7 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
         medical_records_to_create = []
 
         for idx, row in df.iterrows():
+            logger.info(f"Processing row {idx}: {row}")
             board_id = row.get("BoardUniqueID")
             composite_key = '-'.join(
                 parse_date(str(row.get('LicenseExpireDate'))) 
@@ -568,6 +565,7 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
 
             # Map fields
             for source_field, target_field in field_mapping.get('Contact', {}).items():
+                logger.info(f"Mapping {source_field} to {target_field}")
                 value = str(row.get(source_field)).strip()
 
                 if value is not None and ("#" in str(value) or '' in str(value) or "nan" in str(value) or "NAN" in str(value)):
@@ -594,6 +592,7 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
 
             # Map fields
             for source_field, target_field in field_mapping.get('Medical_License__c', {}).items():
+                logger.info(f"Mapping {source_field} to {target_field}")
                 value = str(row.get(source_field)).strip()
 
                 if value is not None and ("#" in str(value) or '' in str(value) or "nan" in str(value) or "NAN" in str(value)):
