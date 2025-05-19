@@ -589,6 +589,7 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
                         continue
 
                 if value is not None and str(value).strip() != '':
+                    logger.info('Contact record:', contact)
                     contact[target_field] = value
                     logger.info('Contact record:', contact)
 
@@ -624,6 +625,7 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
                         continue
 
                 if value is not None and str(value).strip() != '':
+                    logger.info('Contact record:', contact)
                     ml_record[target_field] = value
                     logger.info('Medical License record:', ml_record)
 
