@@ -8,6 +8,7 @@ from io import StringIO
 import pandas as pd
 import requests
 import logging
+import base64
 import json
 import html
 import time
@@ -383,477 +384,84 @@ def get_job_results(job_id, result_type="successfulResults"):
         logger.info(f"Error fetching {result_type} for job {job_id}: {e}")
     return None
 
-def send_email_with_attachments(subject, html_body, attachments=None):
+def upload_sucesss_and_failure_csv_to_salesforce(sf, content, title, library_id):
     """
-    Sends an email with HTML body and optional CSV attachments.
-    attachments: list of tuples (filename, csv_data_string)
-    """
-    smtp_config = {
-        "host": "smtp.gmail.com",
-        "port": 587,
-        "username": os.getenv("SENDER_EMAIL"),
-        "password": os.getenv("GMAIL_APP_PASSWORD"),
-        "sender_email": os.getenv("SENDER_EMAIL"),
-        "receiver_email": "aethereus12@gmail.com"
-    }
-    SMTP_SERVER = smtp_config.get("host")
-    SMTP_PORT = smtp_config.get("port")
-    SMTP_USERNAME = smtp_config.get("username")
-    SMTP_PASSWORD = smtp_config.get("password")
-    EMAIL_SENDER = smtp_config.get("sender_email")
-    EMAIL_RECEIVER = smtp_config.get("receiver_email")
+    Upload content to Salesforce Content Library.
     
-    if not all([SMTP_SERVER, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, EMAIL_SENDER, EMAIL_RECEIVER]):
-        print("SMTP configuration is missing in environment variables. Skipping email notification.")
-        return
-
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = subject
-    msg['From'] = EMAIL_SENDER
-    msg['To'] = EMAIL_RECEIVER # Can be a comma-separated list for multiple recipients
-
-    # Attach HTML body
-    part_html = MIMEText(html_body, 'html', 'utf-8')
-    msg.attach(part_html)
-
-    if attachments:
-        for filename, csv_data in attachments:
-            if csv_data: # Only attach if there's data
-                part_csv = MIMEApplication(csv_data.encode('utf-8'), Name=filename)
-                part_csv['Content-Disposition'] = f'attachment; filename="{filename}"'
-                msg.attach(part_csv)
-                print(f"Prepared attachment: {filename}")
-
+    Args:
+        sf: Salesforce connection object
+        content: csv content to upload
+        title: Title for the content version
+        library_id: ID of the content library
+    """
+    logger.info(f"Uploading csv file '{title}' to library {library_id}")
+    
     try:
-        print(f"Connecting to SMTP server: {SMTP_SERVER}:{SMTP_PORT}")
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.ehlo()
-            if SMTP_PORT != 465: # 465 is typically SSL from the start, 587 uses STARTTLS
-                server.starttls()
-                server.ehlo()
-            server.login(SMTP_USERNAME, SMTP_PASSWORD)
-            server.sendmail(EMAIL_SENDER, EMAIL_RECEIVER.split(','), msg.as_string())
-            print(f"Email notification sent successfully to {EMAIL_RECEIVER}")
-    except smtplib.SMTPAuthenticationError as e:
-        print(f"SMTP Authentication Error: {e}. Check credentials or 'less secure app' settings for Gmail.")
+        # Convert to bytes if string
+        if isinstance(content, str):
+            file_bytes = content.encode('utf-8')
+        else:
+            file_bytes = content
+        
+        # Encode the XML content to base64
+        base64_content = base64.b64encode(file_bytes).decode('utf-8')
+        
+        # Define a filename for the XML
+        filename = f"{title}.xml"
+        
+        # Prepare the ContentVersion record
+        content_version_data = {
+            'Title': title,
+            'PathOnClient': filename,
+            'VersionData': base64_content,
+            'FirstPublishLocationId': library_id
+        }
+        
+        # Upload the file as a ContentVersion
+        result = sf.ContentVersion.create(content_version_data)
+        success = result.get('success', False)
+        
+        if success:
+            content_version = sf.ContentVersion.get(result.get('id'))
+            download_url = content_version.get('VersionDataUrl', 'None')
+            
+            # Log the success
+            integration_log = {
+                'Status_Code__c': '200',
+                'Message__c': f"Inserted ContentVersion ID: {result.get('id')}",
+                'Request_Payload__c': download_url,
+                'Response_Payload__c': json.dumps(result),
+                'Log_Type__c': 'Python Integration'
+            }
+        else:
+            # Log the error
+            integration_log = {
+                'Status_Code__c': '500',
+                'Message__c': 'Error inserting ContentVersion',
+                'Request_Payload__c': 'None',
+                'Response_Payload__c': json.dumps(result),
+                'Log_Type__c': 'Python Integration'
+            }
+            raise SalesforceAPIError("Failed to create ContentVersion", 500)
+
     except Exception as e:
-        print(f"Error sending email: {e}")
-
-def create_email_html_body(job_id, object_name, status, total_submitted, total_processed, total_successful, total_failed, start_time_str, end_time_str):
-    # Calculate metrics
-    success_rate = (total_successful / total_processed * 100) if total_processed > 0 else 0
-    failure_rate = 100 - success_rate if total_processed > 0 else 0
-    
-    # Calculate duration with proper formatting
-    duration_str = "N/A"
-    if start_time_str and end_time_str:
+        logger.error(f"Error uploading file to library: {str(e)}")
+        # Create error log
+        integration_log = {
+            'Status_Code__c': '500',
+            'Message__c': 'Exception occured during insertion of ContentVersion',
+            'Request_Payload__c': 'None',
+            'Response_Payload__c': str(e),
+            'Log_Type__c': 'Python Integration'
+        }
+        # Re-raise with our custom error
+        raise SalesforceAPIError(f"Failed to upload file: {str(e)}", 500)
+    finally:
+        # Always insert the integration log record
         try:
-            fmt = '%Y-%m-%d %H:%M:%S'
-            tstart = datetime.strptime(start_time_str, fmt)
-            tend = datetime.strptime(end_time_str, fmt)
-            duration = tend - tstart
-            total_seconds = duration.total_seconds()
-            
-            # Format duration human-readable
-            hours, remainder = divmod(total_seconds, 3600)
-            minutes, seconds = divmod(remainder, 60)
-            duration_str = f"{int(hours)}h {int(minutes)}m {int(seconds)}s"
-        except ValueError:
-            duration_str = "Invalid timestamps"
-
-    # Generate progress bar HTML
-    def progress_bar(value, color):
-        return f"""
-        <div class="progress-container">
-            <div class="progress-bar" style="width: {value}%; background-color: {color};">
-                <span class="progress-text">{value:.1f}%</span>
-            </div>
-        </div>
-        """
-
-    html = f"""
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Salesforce Bulk Job Report</title>
-        <style>
-            /* Base Styles */
-            body {{
-                font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-                margin: 0;
-                padding: 0;
-                background-color: #f5f7fa;
-                color: #2d3748;
-                line-height: 1.6;
-            }}
-            
-            /* Container */
-            .container {{
-                width: 100%;
-                max-width: 700px;
-                margin: 20px auto;
-                background-color: #ffffff;
-                border-radius: 16px;
-                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
-                overflow: hidden;
-                border: 1px solid #e2e8f0;
-            }}
-            
-            /* Header */
-            .header {{
-                background: linear-gradient(135deg, #4f46e5, #7c3aed);
-                color: white;
-                padding: 32px 25px;
-                text-align: center;
-                position: relative;
-                overflow: hidden;
-            }}
-            
-            .header::before {{
-                content: "";
-                position: absolute;
-                top: -50%;
-                left: -50%;
-                width: 200%;
-                height: 200%;
-                background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 70%);
-                transform: rotate(30deg);
-                animation: shine 8s infinite linear;
-            }}
-            
-            .header h1 {{
-                margin: 0;
-                font-size: 28px;
-                font-weight: 700;
-                letter-spacing: 0.5px;
-                position: relative;
-                text-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            }}
-            
-            .header p {{
-                margin: 8px 0 0;
-                opacity: 0.9;
-                font-size: 16px;
-                position: relative;
-            }}
-            
-            /* Content */
-            .content {{
-                padding: 30px;
-            }}
-            
-            .section-title {{
-                color: #4f46e5;
-                font-size: 20px;
-                font-weight: 600;
-                margin: 0 0 20px;
-                position: relative;
-                padding-bottom: 10px;
-            }}
-            
-            .section-title::after {{
-                content: "";
-                position: absolute;
-                bottom: 0;
-                left: 0;
-                width: 50px;
-                height: 3px;
-                background: linear-gradient(90deg, #4f46e5, #a78bfa);
-                border-radius: 3px;
-            }}
-            
-            /* Status Badge */
-            .status-badge {{
-                display: inline-flex;
-                align-items: center;
-                padding: 10px 18px;
-                border-radius: 24px;
-                font-weight: 600;
-                font-size: 14px;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-                margin-bottom: 20px;
-                box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-                position: relative;
-                overflow: hidden;
-                transition: all 0.3s ease;
-            }}
-            
-            .status-badge::after {{
-                content: "";
-                position: absolute;
-                top: -50%;
-                left: -50%;
-                width: 200%;
-                height: 200%;
-                background: linear-gradient(
-                    to bottom right,
-                    rgba(255, 255, 255, 0.3) 0%,
-                    rgba(255, 255, 255, 0) 60%
-                );
-                transform: rotate(30deg);
-            }}
-            
-            .status-badge:hover {{
-                transform: translateY(-2px);
-                box-shadow: 0 6px 12px rgba(0,0,0,0.1);
-            }}
-            
-            .status-JobComplete {{ 
-                background-color: #10b981;
-                color: white;
-            }}
-            
-            .status-Failed {{ 
-                background-color: #ef4444;
-                color: white;
-            }}
-            
-            .status-Aborted {{ 
-                background-color: #f59e0b;
-                color: white;
-            }}
-            
-            .status-InProgress, .status-UploadComplete {{ 
-                background-color: #3b82f6;
-                color: white;
-            }}
-            
-            /* Summary Grid */
-            .summary-grid {{
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-                gap: 20px;
-                margin: 30px 0;
-            }}
-            
-            .summary-item {{
-                background-color: #ffffff;
-                padding: 20px;
-                border-radius: 12px;
-                text-align: center;
-                border: 1px solid #e2e8f0;
-                box-shadow: 0 4px 6px rgba(0,0,0,0.02);
-                transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-                position: relative;
-                overflow: hidden;
-                z-index: 1;
-            }}
-            
-            .summary-item::before {{
-                content: "";
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 4px;
-                background: linear-gradient(90deg, #4f46e5, #a78bfa);
-            }}
-            
-            .summary-item:hover {{
-                transform: translateY(-5px);
-                box-shadow: 0 10px 20px rgba(0,0,0,0.1);
-            }}
-            
-            .summary-item .label {{
-                font-size: 14px;
-                color: #64748b;
-                display: block;
-                margin-bottom: 8px;
-                font-weight: 500;
-            }}
-            
-            .summary-item .value {{
-                font-size: 28px;
-                font-weight: 700;
-                color: #1e293b;
-                margin: 8px 0;
-                display: block;
-            }}
-            
-            .summary-item .value.success {{ color: #10b981; }}
-            .summary-item .value.error {{ color: #ef4444; }}
-            .summary-item .value.warning {{ color: #f59e0b; }}
-            
-            /* Progress Bars */
-            .progress-container {{
-                width: 100%;
-                height: 24px;
-                background-color: #e2e8f0;
-                border-radius: 12px;
-                overflow: hidden;
-                margin: 15px 0;
-                position: relative;
-            }}
-            
-            .progress-bar {{
-                height: 100%;
-                border-radius: 12px;
-                transition: width 1.5s ease-out;
-                position: relative;
-            }}
-            
-            .progress-text {{
-                position: absolute;
-                right: 8px;
-                top: 50%;
-                transform: translateY(-50%);
-                color: white;
-                font-size: 12px;
-                font-weight: 600;
-                text-shadow: 0 1px 2px rgba(0,0,0,0.2);
-            }}
-            
-            /* Job Info */
-            .job-info {{
-                background-color: #f8fafc;
-                border-radius: 12px;
-                padding: 20px;
-                margin: 25px 0;
-                border: 1px solid #e2e8f0;
-            }}
-            
-            .job-info p {{
-                margin: 8px 0;
-                display: flex;
-            }}
-            
-            .job-info strong {{
-                min-width: 140px;
-                color: #64748b;
-                font-weight: 500;
-            }}
-            
-            /* Footer */
-            .footer {{
-                text-align: center;
-                padding: 25px;
-                font-size: 13px;
-                color: #64748b;
-                background-color: #f8fafc;
-                border-top: 1px solid #e2e8f0;
-            }}
-            
-            .timestamp {{
-                font-style: italic;
-                color: #64748b;
-                font-size: 14px;
-            }}
-            
-            /* Animations */
-            @keyframes fadeIn {{
-                from {{ opacity: 0; transform: translateY(10px); }}
-                to {{ opacity: 1; transform: translateY(0); }}
-            }}
-            
-            @keyframes shine {{
-                0% {{ transform: rotate(30deg) translate(-10%, -10%); }}
-                100% {{ transform: rotate(30deg) translate(10%, 10%); }}
-            }}
-            
-            @keyframes pulse {{
-                0% {{ box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.4); }}
-                70% {{ box-shadow: 0 0 0 10px rgba(79, 70, 229, 0); }}
-                100% {{ box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); }}
-            }}
-            
-            .animated {{
-                animation: fadeIn 0.6s ease-out forwards;
-            }}
-            
-            .delay-1 {{ animation-delay: 0.1s; }}
-            .delay-2 {{ animation-delay: 0.2s; }}
-            .delay-3 {{ animation-delay: 0.3s; }}
-            .delay-4 {{ animation-delay: 0.4s; }}
-            .delay-5 {{ animation-delay: 0.5s; }}
-            
-            .pulse {{
-                animation: pulse 2s infinite;
-                border-radius: 12px;
-            }}
-            
-            /* Responsive */
-            @media (max-width: 600px) {{
-                .summary-grid {{
-                    grid-template-columns: 1fr;
-                }}
-                
-                .content {{
-                    padding: 20px;
-                }}
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="container pulse">
-            <div class="header">
-                <h1 class="animated">Salesforce Bulk Data Load Report</h1>
-                <p class="animated delay-1">Your job processing summary</p>
-            </div>
-            
-            <div class="content">
-                <h2 class="section-title animated delay-1">Job Overview</h2>
-                
-                <div class="job-info animated delay-2">
-                    <p><strong>Object Name:</strong> {object_name}</p>
-                    <p><strong>Job ID:</strong> {job_id}</p>
-                    <p><strong>Status:</strong> <span class="status-badge status-{status}">{status}</span></p>
-                    <p><strong>Processing Time:</strong> {duration_str}</p>
-                    <p class="timestamp">Started: {start_time_str} • Ended: {end_time_str}</p>
-                </div>
-                
-                <h2 class="section-title animated delay-2">Performance Metrics</h2>
-                
-                <div class="summary-grid">
-                    <div class="summary-item animated delay-1">
-                        <span class="label">Total Submitted</span>
-                        <span class="value">{total_submitted}</span>
-                    </div>
-                    
-                    <div class="summary-item animated delay-2">
-                        <span class="label">Total Processed</span>
-                        <span class="value">{total_processed}</span>
-                    </div>
-                    
-                    <div class="summary-item animated delay-3">
-                        <span class="label">Successful</span>
-                        <span class="value success">{total_successful}</span>
-                        {progress_bar(success_rate, '#10b981') if total_processed > 0 else ''}
-                    </div>
-                    
-                    <div class="summary-item animated delay-4">
-                        <span class="label">Failed</span>
-                        <span class="value error">{total_failed}</span>
-                        {progress_bar(failure_rate, '#ef4444') if total_processed > 0 else ''}
-                    </div>
-                    
-                    <div class="summary-item animated delay-5">
-                        <span class="label">Success Rate</span>
-                        <span class="value {'success' if success_rate > 90 else 'error' if success_rate < 70 else 'warning'}">{success_rate:.2f}%</span>
-                        <div class="progress-container">
-                            <div class="progress-bar" style="width: {success_rate}%; background-color: {'#10b981' if success_rate > 90 else '#ef4444' if success_rate < 70 else '#f59e0b'};">
-                                <span class="progress-text">{success_rate:.1f}%</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="animated delay-3" style="margin-top: 30px; padding: 15px; background-color: #f0fdf4; border-radius: 8px; border-left: 4px solid #10b981;">
-                    <p style="margin: 0; color: #065f46; font-weight: 500;">📌 Please find attached CSV files with detailed results for your records.</p>
-                </div>
-            </div>
-            
-            <div class="footer animated delay-4">
-                <p>This report was automatically generated on {datetime.now().strftime('%Y-%m-%d at %H:%M:%S %Z')}</p>
-                <p style="margin-top: 8px; font-size: 12px; color: #94a3b8;">© {datetime.now().year} Salesforce Operations</p>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
-    return html
+            sf.Integration_Log__c.create(integration_log)
+        except Exception as log_error:
+            logger.error(f"Failed to create integration log: {str(log_error)}")
 
 def process_bulk_upsert(sf, df_data, object_name, external_id_field):
     if df_data.empty:
@@ -861,8 +469,6 @@ def process_bulk_upsert(sf, df_data, object_name, external_id_field):
         return
 
     total_submitted_for_job = len(df_data)
-    job_start_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
 
     csv_buffer = io.StringIO()
     df_data.to_csv(csv_buffer, index=False, lineterminator='\n')
@@ -870,10 +476,6 @@ def process_bulk_upsert(sf, df_data, object_name, external_id_field):
 
     job_info = create_bulk_job(object_name, 'upsert', external_id_field)
     if not job_info:
-        # Send failure email if job creation fails
-        job_end_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        html_body = create_email_html_body("N/A", object_name, "JobCreationError", total_submitted_for_job, 0,0,0, job_start_time_str, job_end_time_str)
-        send_email_with_attachments(f"FAILED: Salesforce Bulk Job for {object_name}", html_body)
         integration_log = {
             'Status_Code__c': '500',
             'Message__c': f"FAILED: Salesforce Bulk Job for {object_name}",
@@ -889,9 +491,6 @@ def process_bulk_upsert(sf, df_data, object_name, external_id_field):
 
     job_id = job_info['id']
     if not upload_job_data(job_id, csv_content):
-        job_end_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        html_body = create_email_html_body(job_id, object_name, "UploadFailed", total_submitted_for_job, 0,0,0, job_start_time_str, job_end_time_str)
-        send_email_with_attachments(f"FAILED: Salesforce Bulk Job Upload for {object_name} (Job ID: {job_id})", html_body)
         integration_log = {
             'Status_Code__c': '500',
             'Message__c': f"FAILED: Salesforce Bulk Job Upload for {object_name} (Job ID: {job_id})",
@@ -907,9 +506,6 @@ def process_bulk_upsert(sf, df_data, object_name, external_id_field):
 
     closed_job_info = close_job(job_id)
     if not closed_job_info:
-        job_end_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        html_body = create_email_html_body(job_id, object_name, "JobCloseFailed", total_submitted_for_job, 0,0,0, job_start_time_str, job_end_time_str)
-        send_email_with_attachments(f"FAILED: Salesforce Bulk Job Close for {object_name} (Job ID: {job_id})", html_body)
         integration_log = {
             'Status_Code__c': '500',
             'Message__c': f"FAILED: Salesforce Bulk Job Close for {object_name} (Job ID: {job_id})",
@@ -924,10 +520,17 @@ def process_bulk_upsert(sf, df_data, object_name, external_id_field):
         return
 
     final_job_status = monitor_job_status(job_id)
-    job_end_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    attachments_for_email = []
     successful_csv_data = None
     failed_csv_data = None
+    # Find content library ID
+    library_result = sf.query("SELECT Id FROM ContentWorkspace WHERE Name = 'ABOP Inbound Files'")
+    library_records = library_result.get("records", [])
+
+    if not library_records:
+        error_msg = "Content Library 'ABOP Outbound Files' not found"
+        logger.error(error_msg)
+        raise SalesforceAPIError(error_msg, 500)
+    library_id = library_records[0]["Id"]
 
     if final_job_status:
         state = final_job_status.get('state', 'Unknown')
@@ -938,26 +541,24 @@ def process_bulk_upsert(sf, df_data, object_name, external_id_field):
         # numberRecordsProcessed for Bulk API 2.0 job info means records Salesforce attempted to process.
         successful = processed - failed 
 
-        result = f"Job {job_id} ({object_name}) final state: {state}, Processed: {processed}, Successful: {successful}, Failed: {failed}"
+        result = f"Job {job_id} ({object_name}) final state: {state},Total Submitted: {total_submitted_for_job}, Processed: {processed}, Successful: {successful}, Failed: {failed}"
         print(result)
 
         if successful > 0:
             successful_csv_data = get_job_results(job_id, "successfulResults")
             if successful_csv_data:
-                attachments_for_email.append((f"successful_records_{object_name}_{job_id}.csv", successful_csv_data))
+                # Upload successful CSV to Salesforce
+                upload_sucesss_and_failure_csv_to_salesforce(sf, successful_csv_data, f"successful_records_{object_name}_{job_id}", library_id)
         
         if failed > 0:
             failed_csv_data = get_job_results(job_id, "failedResults")
             if failed_csv_data:
-                attachments_for_email.append((f"failed_records_{object_name}_{job_id}.csv", failed_csv_data))
+                # Upload failed CSV to Salesforce
+                upload_sucesss_and_failure_csv_to_salesforce(sf, failed_csv_data, f"failed_records_{object_name}_{job_id}", library_id)
         
-        email_subject_status = "SUCCESS" if state == 'JobComplete' and failed == 0 else "PARTIAL_SUCCESS" if state == 'JobComplete' and failed > 0 else "FAILED"
-        email_subject = f"{email_subject_status}: Salesforce Bulk Job for {object_name} (ID: {job_id})"
-        html_body = create_email_html_body(job_id, object_name, state, total_submitted_for_job, processed, successful, failed, job_start_time_str, job_end_time_str)
-        send_email_with_attachments(email_subject, html_body, attachments_for_email)
         integration_log = {
             'Status_Code__c': '200',
-            'Message__c': f"Email sent successfully with result",
+            'Message__c': f"Result saved to Content Library: {library_id}",
             'Request_Payload__c': '',
             'Response_Payload__c': str(result),
             'Log_Type__c': 'Python Integration'
@@ -969,9 +570,7 @@ def process_bulk_upsert(sf, df_data, object_name, external_id_field):
         return result
 
     else:
-        print(f"Could not determine final status for job {job_id} ({object_name}). Sending failure notification.")
-        html_body = create_email_html_body(job_id, object_name, "MonitoringTimeoutOrError", total_submitted_for_job, 0,0,0, job_start_time_str, job_end_time_str)
-        send_email_with_attachments(f"ERROR: Salesforce Bulk Job Monitoring for {object_name} (ID: {job_id})", html_body)
+        print(f"Could not determine final status for job {job_id} ({object_name}).")
         integration_log = {
             'Status_Code__c': '500',
             'Message__c': 'Monitoring timeout or error occurred.',
@@ -1120,10 +719,6 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
             result = process_bulk_upsert(sf, df_contacts, 'Contact', con_external_id_field)
         else:
             logger.info("No contact records to process.")
-            send_email_with_attachments(
-                f"INFO: Salesforce Bulk Script - No Contacts Processed for Contact",
-                f"<html><body><h1>No Data</h1><p>No valid Contact records were found in <strong>File Shared</strong> for processing.</p></body></html>"
-            )
             integration_log = {
                 'Status_Code__c': '200',
                 'Message__c': "No contact records to process.",
@@ -1141,10 +736,6 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
             result = process_bulk_upsert(sf, df_medical, 'Medical_License__c', med_external_id_field)
         else:
             logger.info("No medical license records to process.")
-            send_email_with_attachments(
-                f"INFO: Salesforce Bulk Script - No Medical Licenses Processed for Medical License",
-                f"<html><body><h1>No Data</h1><p>No valid Medical License records were found in <strong>File Shared</strong> for processing after filtering.</p></body></html>"
-            )
             integration_log = {
                 'Status_Code__c': '200',
                 'Message__c': "No Medical license records to process.",
@@ -1158,7 +749,6 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
                 logger.error(f"Failed to create integration log: {str(log_error)}")
             result += "No Medical license records to process."
         return result
-
 
     except Exception as e:
         logger.error(f"Error creating contact: {str(e)}", exc_info=True)
@@ -1248,10 +838,6 @@ def prepare_disiciplinary_records(sf, df, file_type, field_mapping):
             result = process_bulk_upsert(sf, df_disciplinary, sf_object_name, external_id_field)
         else:
             logger.info("No disciplinary records to process.")
-            send_email_with_attachments(
-                f"INFO: Salesforce Bulk Script - No Disciplinary Records Processed for Disciplinary Action",
-                f"<html><body><h1>No Data</h1><p>No valid Disciplinary Action records were found in <strong>File Shared</strong> for processing after filtering.</p></body></html>"
-            )
             integration_log = {
                 'Status_Code__c': '500',
                 'Message__c': "No disciplinary records to process.",
