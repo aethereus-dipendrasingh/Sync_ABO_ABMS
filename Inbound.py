@@ -156,17 +156,23 @@ def get_salesforce_file(sf,query,file_type, is_csv):
                     # Read the CSV content into a pandas DataFrame
                     csv_content = StringIO(response.text)
                     df = pd.read_csv(csv_content, on_bad_lines='warn')
+                    logger.info("CSV file converted to DataFrame successfully1")
+                    logger.info(df.head())
                 else:
                     csv_content = StringIO(response.text)
                     if(file_type == 'LIDS'):
                         df = pd.read_csv(csv_content, delimiter="\t", on_bad_lines='warn')
+                        logger.info("CSV file converted to DataFrame successfully2")
+                        logger.info(df.head())
                     else:
                         df = pd.read_csv(csv_content, delimiter=",", on_bad_lines='warn')
+                        logger.info("CSV file converted to DataFrame successfully3")
+                        logger.info(df.head())
                     logger.info(df.head())
                 
                 # Display the table with headers
                 logger.info("CSV file successfully downloaded and converted to table:")
-                # logger.info(df)
+                logger.info(df)
 
                 query = f"SELECT Id,DANS_Candidates_Field_Mapping__c, DANS_Diplomates_Field_Mapping__c,  LIDS_All_Active_Field_Mapping__c FROM ABOP_Migration__c WHERE Is_Active__c =true AND XML_Type__c = '{file_type}'"
                 sfFieldMapping = sf.query(query)
