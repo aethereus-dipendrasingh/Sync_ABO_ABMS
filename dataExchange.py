@@ -450,11 +450,11 @@ def generate_salesforce_xml(xml_file_name):
         title = f"{xml_file_name}_{time.strftime('%d-%m-%Y %H.%M.%S')}"
         
         # Find content library ID
-        library_result = sf.query("SELECT Id FROM ContentWorkspace WHERE Name = 'ABOP XML files'")
+        library_result = sf.query("SELECT Id FROM ContentWorkspace WHERE Name = 'ABOP Outbound Files'")
         library_records = library_result.get("records", [])
 
         if not library_records:
-            error_msg = "Content Library 'ABOP XML files' not found"
+            error_msg = "Content Library 'ABOP Outbound Files' not found"
             logger.error(error_msg)
             raise SalesforceAPIError(error_msg, 500)
             
