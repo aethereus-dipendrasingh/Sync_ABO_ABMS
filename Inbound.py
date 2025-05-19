@@ -567,6 +567,7 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
             for source_field, target_field in field_mapping.get('Contact', {}).items():
                 logger.info(f"Mapping {source_field} to {target_field}")
                 value = str(row.get(source_field)).strip()
+                logger.info(f"Value: {value}")
 
                 if value is not None and ("#" in str(value) or '' in str(value) or "nan" in str(value) or "NAN" in str(value)):
                     continue
@@ -589,11 +590,13 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
 
                 if pd.notna(value):
                     contact[target_field] = value
+                    logger.info(contact)
 
             # Map fields
             for source_field, target_field in field_mapping.get('Medical_License__c', {}).items():
                 logger.info(f"Mapping {source_field} to {target_field}")
                 value = str(row.get(source_field)).strip()
+                logger.info(f"Value: {value}")
 
                 if value is not None and ("#" in str(value) or '' in str(value) or "nan" in str(value) or "NAN" in str(value)):
                     continue
@@ -622,6 +625,7 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
 
                 if pd.notna(value):
                     ml_record[target_field] = value
+                    logger.info(ml_record)
 
             if contact:
                 if contact not in contact_records_to_create:
