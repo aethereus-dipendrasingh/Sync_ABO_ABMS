@@ -390,23 +390,14 @@ def upload_sucesss_and_failure_csv_to_salesforce(sf, content, title, library_id)
     logger.info(f"Uploading csv file '{title}' to library {library_id}")
     
     try:
-        # Convert to bytes if string
-        if isinstance(content, str):
-            file_bytes = content.encode('utf-8')
-        else:
-            file_bytes = content
-        
-        # Encode the XML content to base64
-        base64_content = base64.b64encode(file_bytes).decode('utf-8')
-        
         # Define a filename for the XML
-        filename = f"{title}.xml"
+        filename = f"{title}.csv"
         
         # Prepare the ContentVersion record
         content_version_data = {
             'Title': title,
             'PathOnClient': filename,
-            'VersionData': base64_content,
+            'VersionData': content,
             'FirstPublishLocationId': library_id
         }
         
