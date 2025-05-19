@@ -394,7 +394,7 @@ def send_email_with_attachments(subject, html_body, attachments=None):
         "username": os.getenv("SENDER_EMAIL"),
         "password": os.getenv("GMAIL_APP_PASSWORD"),
         "sender_email": os.getenv("SENDER_EMAIL"),
-        "receiver_email": RECEIVER_EMAIL
+        "receiver_email": "aethereus12@gmail.com"
     }
     SMTP_SERVER = smtp_config.get("host")
     SMTP_PORT = smtp_config.get("port")
