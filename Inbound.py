@@ -740,7 +740,7 @@ def prepare_disiciplinary_records(sf, df, file_type, field_mapping):
             for source_field, target_field in field_mapping.get('Disciplinary_Actions__c', {}).items():
                 value = str(row.get(source_field)).strip()
 
-                if value is not None and ("#" in str(value) or '' in str(value) or "nan" in str(value) or "NAN" in str(value)):
+                if value is not None and ("#" in str(value) or "nan" in str(value) or "NAN" in str(value)):
                     continue
 
                 if "date" in source_field.lower() and pd.notna(value):
