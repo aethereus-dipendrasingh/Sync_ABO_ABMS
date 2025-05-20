@@ -507,7 +507,7 @@ def process_bulk_upsert(sf, df_data, object_name, external_id_field):
                 if contentDocumentId:
                     failed_contentDocumentIds.append(contentDocumentId)
         
-        if successful_contentDocumentIds or failed_contentDocumentIds:
+        if successful_contentDocumentIds or failed_contentDocumentIds or total_submitted_for_job:
             create_integration_log(
                 sf,
                 status_code=200,
