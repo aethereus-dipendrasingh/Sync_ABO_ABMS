@@ -423,6 +423,11 @@ def upload_sucesss_and_failure_csv_to_salesforce(sf, content, title, library_id)
                 'Response_Payload__c': json.dumps(result),
                 'Log_Type__c': 'Python Integration'
             }
+            try:
+                sf.Integration_Log__c.create(integration_log)
+            except Exception as log_error:
+                logger.error(f"Failed to create integration log: {str(log_error)}")
+            return None
     except Exception as e:
         logger.error(f"Error uploading file to library: {str(e)}")
         # Create error log
@@ -433,13 +438,10 @@ def upload_sucesss_and_failure_csv_to_salesforce(sf, content, title, library_id)
             'Response_Payload__c': str(e),
             'Log_Type__c': 'Python Integration'
         }
-    finally:
-        # Always insert the integration log record
         try:
             sf.Integration_Log__c.create(integration_log)
         except Exception as log_error:
             logger.error(f"Failed to create integration log: {str(log_error)}")
-    return None
 
 def process_bulk_upsert(sf, df_data, object_name, external_id_field):
     if df_data.empty:
@@ -594,9 +596,7 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
                         continue
 
                 if value is not None and str(value).strip() != '':
-                    logger.info('Contact record:', contact)
                     contact[target_field] = value
-                    logger.info('Contact record:', contact)
 
             # Map fields
             for source_field, target_field in field_mapping.get('Medical_License__c', {}).items():
@@ -630,9 +630,7 @@ def prepare_contact_medical_license_records(sf, df, field_mapping):
                         continue
 
                 if value is not None and str(value).strip() != '':
-                    logger.info('Contact record:', contact)
                     ml_record[target_field] = value
-                    logger.info('Medical License record:', ml_record)
 
             if contact:
                 if contact not in contact_records_to_create:
