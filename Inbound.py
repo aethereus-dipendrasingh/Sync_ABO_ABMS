@@ -413,46 +413,33 @@ def upload_sucesss_and_failure_csv_to_salesforce(sf, content, title, library_id)
         success = result.get('success', False)
         
         if success:
-            content_version = sf.ContentVersion.get(result.get('id'))
-            download_url = content_version.get('VersionDataUrl', 'None')
-            
-            # Log the success
-            integration_log = {
-                'Status_Code__c': '200',
-                'Message__c': f"Inserted ContentVersion ID: {result.get('id')}",
-                'Request_Payload__c': download_url,
-                'Response_Payload__c': json.dumps(result),
-                'Log_Type__c': 'Python Integration'
-            }
+            return result.get('id')
         else:
             # Log the error
             integration_log = {
                 'Status_Code__c': '500',
-                'Message__c': 'Error inserting ContentVersion',
+                'Message__c': 'Failed to create ContentVersion',
                 'Request_Payload__c': 'None',
                 'Response_Payload__c': json.dumps(result),
                 'Log_Type__c': 'Python Integration'
             }
-            raise SalesforceAPIError("Failed to create ContentVersion", 500)
-
     except Exception as e:
         logger.error(f"Error uploading file to library: {str(e)}")
         # Create error log
         integration_log = {
             'Status_Code__c': '500',
-            'Message__c': 'Exception occured during insertion of ContentVersion',
+            'Message__c': 'Exception occured during creation of ContentVersion',
             'Request_Payload__c': 'None',
             'Response_Payload__c': str(e),
             'Log_Type__c': 'Python Integration'
         }
-        # Re-raise with our custom error
-        raise SalesforceAPIError(f"Failed to upload file: {str(e)}", 500)
     finally:
         # Always insert the integration log record
         try:
             sf.Integration_Log__c.create(integration_log)
         except Exception as log_error:
             logger.error(f"Failed to create integration log: {str(log_error)}")
+    return None
 
 def process_bulk_upsert(sf, df_data, object_name, external_id_field):
     if df_data.empty:
@@ -502,17 +489,35 @@ def process_bulk_upsert(sf, df_data, object_name, external_id_field):
         result = f"Job {job_id} ({object_name}) final state: {state},Total Submitted: {total_submitted_for_job}, Processed: {processed}, Successful: {successful}, Failed: {failed}"
         print(result)
 
+        successful_contentDocumentIds = []
+        failed_contentDocumentIds = []
+
         if successful > 0:
             successful_csv_data = get_job_results(job_id, "successfulResults")
             if successful_csv_data:
                 # Upload successful CSV to Salesforce
-                upload_sucesss_and_failure_csv_to_salesforce(sf, successful_csv_data, f"successful_records_{object_name}_{job_id}", library_id)
-        
+                contentDocumentId = upload_sucesss_and_failure_csv_to_salesforce(sf, successful_csv_data, f"successful_records_{object_name}_{job_id}", library_id)
+                if contentDocumentId:
+                    successful_contentDocumentIds.append(contentDocumentId)
         if failed > 0:
             failed_csv_data = get_job_results(job_id, "failedResults")
             if failed_csv_data:
                 # Upload failed CSV to Salesforce
-                upload_sucesss_and_failure_csv_to_salesforce(sf, failed_csv_data, f"failed_records_{object_name}_{job_id}", library_id)
+                contentDocumentId = upload_sucesss_and_failure_csv_to_salesforce(sf, failed_csv_data, f"failed_records_{object_name}_{job_id}", library_id)
+                if contentDocumentId:
+                    failed_contentDocumentIds.append(contentDocumentId)
+        
+        if successful_contentDocumentIds or failed_contentDocumentIds:
+            create_integration_log(
+                sf,
+                status_code=200,
+                message=f"Bulk job {job_id} completed successfully. {result}",
+                request_payload="None",
+                response_payload=json.dumps({
+                    "successfulContentDocumentIds": successful_contentDocumentIds,
+                    "failedContentDocumentIds": failed_contentDocumentIds
+                })
+            )
         return result
     else:
         print(f"Could not determine final status for job {job_id} ({object_name}).")
