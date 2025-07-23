@@ -10,3 +10,4 @@ lxml
 html5lib
 pandas
 requests
+salesforce_bulk
